@@ -1310,37 +1310,23 @@ int main(int argc, char** argv) {
     aurora::DisplayGeometry appliedGeometry = initialGeometry;
     logf(ANDROID_LOG_INFO, "图层参数: %dx%d layerStack=%d logicalDisplay=%d capture=%s/%dfps downscale=%d",
          layerW, layerH, layerStack, logicalDisplayId, captureBackend.c_str(), captureFps, downscale);
-
     // ---- 全屏接管与镜像分辨率是配套的 ----
     //
     // 全屏接管把镜像画面不透明地铺满整屏。若镜像仍是降采样（默认 2×），放大后
     // **整块屏幕**都会糊 —— 那比"只有玻璃糊"更糟。所以这里把降采样自动关掉。
     // 用户显式写了 --downscale 就尊重他（只在启动日志里提醒）。
     //
-    // ★★ 但 1:1 的代价与**像素数**成正比，这一点决定了同一颗 SoC 上体验能差多少：
-    //     1080×2376 = 2.57 Mpx → 10.3 MB/帧，@120fps ≈ 1.2 GB/s
-    //     1440×3168 = 4.56 Mpx → 18.2 MB/帧，@120fps ≈ 2.2 GB/s
-    //   后者把带宽吃掉近一倍，在同样的 GPU 上会直接从"能跑"变成"整屏卡"。
-    //   所以只在高像素设备上保留降采样：宁可镜面略糊，也不要整机掉帧。
-    //   （2.57 Mpx 的那档仍在预算内，视觉上不会有任何删减。）
+    // ★ 这里曾经按"像素数是否超过 3.0Mpx"决定要不要保留降采样，想给 2K/平板省带宽。
+    //   实测回顾（用户反馈）：平板画面**直接变模糊**，而卡顿**一点没改善**。
+    //   结论：降分辨率换流畅在这台平板上不成立 —— 模糊是确定的代价，流畅是假的。
+    //   现在无条件 1:1：视觉优先，性能问题另找根因（见 Renderer 里的屏幕刷新率跟随）。
     {
         const char* takeover = std::getenv("AURORA_FULLSCREEN_TAKEOVER");
         const bool takeoverOn = !(takeover != nullptr && takeover[0] == '0' && takeover[1] == '\0');
-        const long long pixels = static_cast<long long>(layerW) * static_cast<long long>(layerH);
-        // 约 1080p 级（2.6 Mpx）留 15% 余量；2K（>4 Mpx）会落到 else 分支。
-        const long long fullResolutionBudget = 3000000LL;
         if (takeoverOn && downscale > 1 && !downscaleExplicit) {
-            if (pixels <= fullResolutionBudget) {
-                logf(ANDROID_LOG_INFO,
-                     "全屏接管：镜像降采样 %d → 1（%lld 像素在 1:1 预算内，整屏清晰）",
-                     downscale, pixels);
-                downscale = 1;
-            } else {
-                logf(ANDROID_LOG_WARN,
-                     "全屏接管：屏幕 %lld 像素超过 1:1 预算（%lld），保留降采样 %d —— "
-                     "整屏铺满时镜像会被放大，画面略软，但这是避免大面积掉帧的取舍",
-                     pixels, fullResolutionBudget, downscale);
-            }
+            logf(ANDROID_LOG_INFO,
+                 "全屏接管：镜像降采样 %d → 1（整屏铺满必须 1:1，否则整屏发糊）", downscale);
+            downscale = 1;
         } else if (takeoverOn && downscale > 1) {
             logf(ANDROID_LOG_WARN,
                  "全屏接管已开启但 --downscale %d：镜像会被放大到整屏，画面会糊（去掉该参数即自动选）",

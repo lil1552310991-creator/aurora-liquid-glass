@@ -257,6 +257,9 @@ struct GuiSyms {
     void* (*txSetInputWindowInfo)(void*, const void*, void*) = nullptr;
     // [未核实-1] bool 重载。形状为本机 clang 汇编反推，未在设备上 dlsym 过。
     void* (*txSetTrustedOverlay)(void*, const void*, bool) = nullptr;
+    // AArch64 invisible-reference parameter: x2 points to a real owning
+    // 8-byte sp<WindowInfoHandle> slot. The callee moves it and zeros the slot.
+    // Pass its address explicitly so ownership and post-call cleanup are real.
     // -- 帧率投票（可选符号：缺失只是不能投票，不影响建层）--
     //
     //   为什么需要它：我们的图层是 SF 里 mRoot 的兄弟，不是 WMS 窗口。
@@ -315,6 +318,7 @@ inline GuiSyms& syms() {
 inline bool inputChainReady() {
     return syms().inputChainReady;
 }
+
 
 inline void* Rlib(void* h, const char* n, bool loud) {
     void* p = h ? dlsym(h, n) : nullptr;

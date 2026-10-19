@@ -739,34 +739,6 @@ bool glRunGather(int regionW, int regionH, unsigned int sourceTexture, int sourc
         }
     }
 
-    // ★★ 大面积面板追加降采样（平板场景）。默认的 down 只由模糊半径决定，
-    //   与屏幕大小无关 —— 于是同一套玻璃参数在平板上会让模糊目标面积成倍增长：
-    //     · 1080x2376 手机，面板 760x2114，σ 对应 down=3 → 目标约 178Kpx
-    //     · 2560x1600 平板，面板约 2048x1280，同样 down=3 → 目标约 292Kpx（+64%）
-    //   而平板 GPU 通常更弱 ⇒ 明显掉帧（用户实测：手机正常、平板"特别卡、很明显的掉帧"）。
-    //
-    //   ★ 为什么增大 down 不算"删减效果"：down 只改变模糊的**计算分辨率**，不改变
-    //     模糊半径的视觉大小。模糊本身是低通，降采样后在低分辨率上做核再线性放大，
-    //     在 σ≥2 时与全分辨率结果的差异不可见。真正影响观感的折射/色散/边光/内阴影
-    //     全在另一条路径上，与本改动无关。
-    //
-    //   ★ 阈值设在手机达不到的位置（3.0Mpx ≈ 1080p 整屏的 1.17 倍），
-    //     所以 1080p 级手机的面板**一个都不会被这条触发**，视觉零变化。
-    {
-        const long long regionPixels =
-            static_cast<long long>(regionW) * static_cast<long long>(regionH);
-        constexpr long long kLargePanelPixels = 3000000LL;   // 3.0 Mpx
-        constexpr long long kHugePanelPixels = 6000000LL;    // 6.0 Mpx
-        if (regionPixels > kHugePanelPixels) {
-            down = std::max(down, 4);
-        } else if (regionPixels > kLargePanelPixels) {
-            down = std::max(down, 2);
-        }
-        if (down > config::Render::BLUR_DECIMATE_LIMIT) {
-            down = config::Render::BLUR_DECIMATE_LIMIT;
-        }
-    }
-
     // ★★ 降采样网格必须**严格**是"源像素 / down"，而不是"采样区尺寸 / ceil(尺寸/down)"。
     //
     //   写成 ceil 时 pitch = regionW / ceil(regionW/down) 是**非整数**
