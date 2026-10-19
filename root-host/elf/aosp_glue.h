@@ -313,6 +313,32 @@ inline GuiSyms& syms() {
     return s;
 }
 
+// 屏幕当前**实际**刷新率（Hz）。读不到返回 0，调用方按"未知"处理。
+//
+// ★ 刻意用外部命令读文本，而不是 libgui 的 getActiveDisplayMode：
+//   后者收发 sp<IBinder>，本 ELF 静态链接 libc++，跨 ABI 析构会 SIGABRT
+//   （已在本机实测崩过：libc++abi: terminating + SIGABRT）。
+//   这里只读一段文本，不构造任何系统类型的 C++ 对象，没有 ABI 面。
+// ★ 也不拿自己的出帧率冒充屏幕刷新率：那是输出不是输入，会自锁（曾锁死 60fps）。
+// 耗时约 50ms，只应在启动时调用一次。
+inline float queryPanelRefreshRate() {
+    const char* cmd = "dumpsys SurfaceFlinger 2>/dev/null | grep -m1 activeMode";
+    FILE* pipe = popen(cmd, "r");
+    if (pipe == nullptr) return 0.0f;
+    char line[512] = {};
+    float hz = 0.0f;
+    if (fgets(line, sizeof line, pipe) != nullptr) {
+        const char* p = strstr(line, "vsyncRate=");
+        if (p != nullptr) {
+            hz = strtof(p + 10, nullptr);
+        }
+    }
+    pclose(pipe);
+    // 合理区间保护：读到垃圾值不要拿去当帧率用。
+    if (!(hz >= 20.0f && hz <= 240.0f)) return 0.0f;
+    return hz;
+}
+
 // 输入/触摸链路是否可用。false = 厂商改过 libbinder/libgui 的相关签名，
 // 调用方应降级为"纯显示"，而不是把整个覆盖层判为启动失败。
 inline bool inputChainReady() {

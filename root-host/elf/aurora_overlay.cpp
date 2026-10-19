@@ -1037,6 +1037,7 @@ int main(int argc, char** argv) {
     int maxSeconds = 0;              // 0 = 不自动退出
     int captureFps = 120;
     int renderFps = 120;
+    bool renderFpsExplicit = false;   // 用户是否显式写了 --render-fps（决定能否跟随屏幕）
     int downscale = 2;
     bool downscaleExplicit = false;   // 用户是否显式写了 --downscale（决定能否自动改成 1:1）
     int backendChoice = -1;           // -1=未指定（走启动菜单）；0=OpenGL ES；1=Vulkan
@@ -1072,7 +1073,7 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(a, "--layer-stack") && v) { layerStackArg = parseInt(v, -1); ++i; }
         else if (!std::strcmp(a, "--max-seconds") && v) { maxSeconds = parseInt(v, 0); ++i; }
         else if (!std::strcmp(a, "--capture-fps") && v) { captureFps = std::clamp(parseInt(v, 120), 1, 240); ++i; }
-        else if (!std::strcmp(a, "--render-fps") && v) { renderFps = std::clamp(parseInt(v, 120), 1, 240); ++i; }
+        else if (!std::strcmp(a, "--render-fps") && v) { renderFps = std::clamp(parseInt(v, 120), 1, 240); renderFpsExplicit = true; ++i; }
         else if (!std::strcmp(a, "--downscale") && v) { downscale = std::clamp(parseInt(v, 2), 1, 8); downscaleExplicit = true; ++i; }
         else if (!std::strcmp(a, "--backend") && v) {
             if (!std::strcmp(v, "vulkan") || !std::strcmp(v, "vk")) backendChoice = 1;
@@ -1641,6 +1642,29 @@ int main(int argc, char** argv) {
         renderer.setBackendKind(aurora::BackendKind::Vulkan);
     }
     renderer.setHostMode(aurora::HostMode::RootNative);
+    // ★ 帧率跟随屏幕：屏幕只有 60Hz 时按 120fps 出帧，一半的帧永远不会被显示，
+    //   代价却是实打实的 —— 平板上实测直接把 GPU 顶满然后掉帧。
+    //   这里读一次**屏幕真实刷新率**（fork dumpsys，只读文本，53ms，零 ABI 风险），
+    //   只有在它明确低于请求值时才降。用户显式写了 --render-fps 就尊重他。
+    //
+    //   ★ 为什么不用 libgui 的 getActiveDisplayMode：那条路返回 sp<IBinder>，
+    //     本 ELF 静态链接 libc++，析构函数跨 ABI 调用会直接 SIGABRT（已实测崩过）。
+    //   ★ 也不用我们自己的 present fps 去反推屏幕刷新率：那是输出不是输入，
+    //     会形成"渲染 60 → 判定屏幕 60 → 限制 60 → 永远回不去"的死锁。
+    {
+        const float panelHz = aospglue::detail::queryPanelRefreshRate();
+        if (panelHz > 0.5f) {
+            logf(ANDROID_LOG_INFO, "屏幕刷新率: %.1fHz", panelHz);
+            if (!renderFpsExplicit && panelHz + 0.5f < static_cast<float>(renderFps)) {
+                logf(ANDROID_LOG_INFO,
+                     "帧率跟随屏幕：%dfps → %.0ffps（屏幕只有 %.1fHz，多出的帧不会被显示）",
+                     renderFps, panelHz, panelHz);
+                renderFps = static_cast<int>(panelHz + 0.5f);
+            }
+        } else {
+            logf(ANDROID_LOG_WARN, "屏幕刷新率: 读不到，按 %dfps 出帧", renderFps);
+        }
+    }
     renderer.setTargetFrameRate(static_cast<float>(renderFps));
     renderer.setLiquidGlassVisible(true);        // ★ 切到 secondary_imgui 那套界面
     renderer.setSafeRegion(0.0f, 0.0f, 0.0f, 0.0f);
