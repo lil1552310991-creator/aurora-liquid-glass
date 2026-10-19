@@ -1,0 +1,38 @@
+# ---- 构建产物 ----
+build/
+.gradle/
+app/.cxx/
+*.ninja
+*.ninja_deps
+*.ninja_log
+.cxx/
+*.o
+*.a
+*.so
+*.elf
+dist/
+
+# ---- 大体积 / 含隐私的研究资料 ----
+# research/ 里有 1.6 GB 真机截图（包含测试时的私人界面），不进仓库。
+# 需要留档的证据请挑出与隐私无关的少数几张，放到 docs/evidence/ 下。
+research/
+
+# ---- 抓下来的 AOSP 参考源码（仅本地查阅用） ----
+.ime-research/
+
+# ---- 本机配置 ----
+local.properties
+imgui.ini
+*.log
+*.tmp
+
+# ---- 参数/状态快照（可能带个人配置） ----
+glass_*.json
+params_*.json
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

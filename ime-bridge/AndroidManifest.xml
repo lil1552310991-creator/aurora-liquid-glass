@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Aurora 输入法桥接辅助包。
+
+  这个包没有 Launcher Activity，也不进最近任务列表。它的唯一职责是提供一个
+  可以被系统启动的 Service，从而拿到创建悬浮窗和请求输入法焦点所需的身份。
+
+  包名与 Main.AUX_PACKAGE 必须一致。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.aurora.imebridge"
+    android:versionCode="1"
+    android:versionName="1.0">
+
+    <!-- 创建 1x1 透明悬浮窗 -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!--
+      与 C++ 侧的 127.0.0.1 回环 TCP 通信。
+      注意：**即使只连回环也需要 INTERNET**（Android 的 paranoid networking 按
+      inet gid 放行 socket()）。缺这条时 Service 进程里的 new Socket() 会直接
+      抛异常，表现为「窗口建好了但 C++ 永远等不到连接」。
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 8.0+ 后台服务需要提升为前台，否则会被系统回收 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- 临时后台启动许可 -->
+    <uses-permission android:name="android.permission.START_FOREGROUND_SERVICES_FROM_BACKGROUND" />
+
+    <application
+        android:label="dum"
+        android:allowBackup="false"
+        android:hasCode="true"
+        android:supportsRtl="false">
+
+        <service
+            android:name="com.aurora.imebridge.AuroraImeService"
+            android:exported="true"
+            android:foregroundServiceType="specialUse"
+            android:stopWithTask="false">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="input method bridge host" />
+        </service>
+
+    </application>
+</manifest>

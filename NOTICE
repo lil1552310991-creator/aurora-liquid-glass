@@ -1,0 +1,57 @@
+Aurora — Android 液态玻璃覆盖层
+Copyright 2026 lil1552310991-creator
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+==========================================================================
+本产品包含来自以下第三方项目的软件，在此保留其归属声明。
+==========================================================================
+
+--------------------------------------------------------------------------
+LiquidGlass-Cpp（本项目内路径：app/src/main/cpp/third_party/liquidglass/ytbl/）
+Copyright 2026 默檐 (SilentEaves)
+https://github.com/SilentEaves/LiquidGlass-Cpp
+Licensed under the Apache License, Version 2.0
+
+  ★ 已修改（Apache-2.0 第 4(b) 条要求标注）：
+    · Context.cpp          —— 采样区留白优化、降采样网格相位锚定、性能计数
+    · GlassPanel.cpp       —— 留白接入、分层诊断开关
+    · GlassUI.h            —— 可调配方结构（PillTune/ToggleTune/…）、内容遮罩钩子
+    · Shaders.cpp          —— 内容遮罩 uniform、着色器错误链
+    · GlassContext.h       —— 采集区状态扩展
+    · GlassInternal.h      —— 面板任务字段扩展
+    · Runtime.cpp          —— 运行时钩子
+    · SpringSim.cpp        —— 弹簧模拟增量
+    · PillButton.cpp / Slider.cpp / TabBar.cpp / Toggle.cpp
+                           —— 改为读取可调配方（默认值与原实现常量逐一相等）
+    · 新增 GlassCapturePadding.h / GlassRecipes.h / GlassRecipes.cpp
+    · 新增 使用说明之外的构建适配
+
+    未修改的文件保持逐字节相同。
+
+--------------------------------------------------------------------------
+AndroidLiquidGlass（经由上面的 LiquidGlass-Cpp 间接包含）
+Copyright 2025 Kyant
+https://github.com/Kyant0/AndroidLiquidGlass
+Licensed under the Apache License, Version 2.0
+
+--------------------------------------------------------------------------
+Dear ImGui（本项目内路径：app/src/main/cpp/third_party/imgui/）
+Copyright (c) 2014-2024 Omar Cornut
+https://github.com/ocornut/imgui
+Licensed under the MIT License
+
+--------------------------------------------------------------------------
+stb_image / stb_truetype
+https://github.com/nothings/stb
+Public domain / MIT License（由作者双许可）
