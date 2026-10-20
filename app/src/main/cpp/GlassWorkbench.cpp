@@ -255,6 +255,9 @@ struct Workbench {
   bool searchActive = false;
   bool showDiagnostics = false;
   bool showGaps = false;
+  // "全部收起 / 全部展开"一次性请求：CollapsingHeader 的展开状态归 ImGui 内部管，
+  // 只能靠下一帧的 SetNextItemOpen 覆盖，所以用一次性标志而不是持久字段。
+  int openAllRequest = 0;        // 0=无请求 1=全部展开 2=全部收起
   int editingParam = -1;         // 正在被"数值输入框"编辑的参数下标
   bool editingValue = false;
   char presetName[48] = {};
@@ -608,6 +611,13 @@ bool DrawTargetParams(const std::string& targetId, Target& target, Workbench& wo
   bool changed = false;
   const ParamRowMetrics metrics = MeasureRow(target);
 
+  // ★★ 默认只展开**第一组**，其余折叠。
+  //
+  //   原来每个组都带 ImGuiTreeNodeFlags_DefaultOpen ⇒ 打开一页就铺开 60+ 条滑块，
+  //   一屏全是控件、既找不到重点也容易误触（用户反馈："现在太乱了"）。
+  //   折叠头本身带「（N 项，已改 M 项）」，所以收起也不会丢信息：
+  //   动过哪一组一眼就能看出来，点开才展开细节。
+  bool firstGroupSeen = false;
   for (const ParamGroup& group : target.groups) {
     if (group.count == 0) continue;
     if (std::strcmp(group.name.c_str(), "能力缺口（只读）") == 0) continue;  // 单独一节显示
@@ -634,7 +644,21 @@ bool DrawTargetParams(const std::string& targetId, Target& target, Workbench& wo
     //     直接用它会把可用宽度算成几百像素的零头，标题与参数名都会被过度截断
     //     （真机截图露馅：参数名显示成"鲜艳度增"、"启用面板"）。见下面 available 的注释。
     const std::string fitted = FitTextToWidth(header, ImGui::GetContentRegionMax().x);
-    const bool open = ImGui::CollapsingHeader(fitted.c_str(), ImGuiTreeNodeFlags_DefaultOpen);
+    // 只有第一组默认展开；其余收起，由用户按需点开。
+    // 已改动过的组也默认展开 —— 那些正是用户此刻关心的。
+    const bool firstOpen = !firstGroupSeen;
+    firstGroupSeen = true;
+    // 一次性请求优先：用户点了「全部展开 / 全部收起」，这一帧强制覆盖内部状态。
+    if (workbench.openAllRequest == 1) {
+      ImGui::SetNextItemOpen(true, ImGuiCond_Always);
+    } else if (workbench.openAllRequest == 2) {
+      ImGui::SetNextItemOpen(false, ImGuiCond_Always);
+    }
+    const ImGuiTreeNodeFlags headerFlags =
+        (workbench.openAllRequest == 0 && (firstOpen || modified > 0))
+            ? ImGuiTreeNodeFlags_DefaultOpen
+            : ImGuiTreeNodeFlags_None;
+    const bool open = ImGui::CollapsingHeader(fitted.c_str(), headerFlags);
 
     if (open) {
       // 分组重置放在组内第一行（不压在折叠头上：压在头上会和"展开/收起"抢点击）
@@ -677,6 +701,9 @@ bool DrawTargetParams(const std::string& targetId, Target& target, Workbench& wo
     }
     ImGui::PopID();
   }
+
+  // 一次性请求已在本帧所有分组上生效 ⇒ 立刻清掉，避免持续压制用户手动折叠。
+  workbench.openAllRequest = 0;
 
   // 能力缺口：单独一节，只读 + 原因（不做假控件）
   bool hasGaps = false;
@@ -1291,6 +1318,28 @@ void DrawGlassWorkbench() {
     return;
   }
   if (workbench.page >= static_cast<int>(pages.size())) workbench.page = 0;
+
+  // ★ 目标快速跳转下拉：分页栏是横向滚动的，目标一多就得来回滑才能找到。
+  //   这里给一个纯文本列表，按类别名直接跳，比滑动手势可靠得多。
+  {
+    const Target* current = pages[static_cast<std::size_t>(workbench.page)];
+    ImGui::SetNextItemWidth(-1.0f);
+    if (ImGui::BeginCombo("##target_jump", current->desc.name.c_str())) {
+      for (int i = 0; i < static_cast<int>(pages.size()); ++i) {
+        const bool selected = (i == workbench.page);
+        char label[192];
+        std::snprintf(label, sizeof(label), "%s  ·  %s", pages[static_cast<std::size_t>(i)]->desc.name.c_str(),
+                      pages[static_cast<std::size_t>(i)]->desc.id.c_str());
+        if (ImGui::Selectable(label, selected)) workbench.page = i;
+        if (selected) ImGui::SetItemDefaultFocus();
+      }
+      ImGui::EndCombo();
+    }
+    // 一键展开 / 收起：60+ 条滑块的页面上，逐个点折叠头太累。
+    if (ImGui::Button("全部展开")) workbench.openAllRequest = 1;
+    ImGui::SameLine();
+    if (ImGui::Button("全部收起")) workbench.openAllRequest = 2;
+  }
 
   const PagedBarResult bar = DrawPagedBar(workbench, pages);
   workbench.page = bar.selected;
