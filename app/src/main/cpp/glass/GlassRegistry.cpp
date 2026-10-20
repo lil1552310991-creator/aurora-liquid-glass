@@ -1,6 +1,9 @@
 #include "GlassRegistry.h"
 
 #include <algorithm>
+#if defined(__ANDROID__)
+#include <android/log.h>
+#endif
 #include <cstring>
 
 namespace aurora {
@@ -451,7 +454,35 @@ bool Registry::Set(const std::string& target, const std::string& param, const Pa
   slot->Write(sanitized);
   ++editVersion_;
   MarkDirty(*targets_[static_cast<std::size_t>(targetIndex)], *slot);
+  // ★ 诊断：确认"控件 → 注册表"这一跳真的发生了。
+  //   参数调了没反应时，先看这条有没有出现：
+  //     没有 ⇒ 控件没写入（targetId/param 名不匹配，或 desc.supported 为假）；
+  //     有   ⇒ 问题在下游（Commit 或渲染读取）。
+#if defined(__ANDROID__)
+  {
+    static int setLogBudget = 40;
+    if (setLogBudget > 0) {
+      --setLogBudget;
+      char valueText[64] = {};
+      switch (slot->desc.kind) {
+        case ParamKind::Float: snprintf(valueText, sizeof valueText, "%.4f", sanitized.f); break;
+        case ParamKind::Int:
+        case ParamKind::Enum: snprintf(valueText, sizeof valueText, "%d", sanitized.i); break;
+        case ParamKind::Bool: snprintf(valueText, sizeof valueText, "%d", sanitized.b ? 1 : 0); break;
+        case ParamKind::Color:
+          snprintf(valueText, sizeof valueText, "%.3f,%.3f,%.3f,%.3f",
+                   sanitized.rgba[0], sanitized.rgba[1], sanitized.rgba[2], sanitized.rgba[3]);
+          break;
+      }
+      __android_log_print(ANDROID_LOG_INFO, "AuroraParam",
+                          "SET %s/%s = %s (applyRef=%s)",
+                          target.c_str(), param.c_str(), valueText,
+                          slot->applyRef != nullptr ? (slot->applyRef != slot->ref ? "separate" : "same")
+                                                    : "null");
+    }
+  }
 
+#endif
   ParamChange change;
   change.target = target;
   change.param = param;
