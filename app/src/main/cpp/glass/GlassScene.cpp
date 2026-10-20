@@ -61,11 +61,22 @@ lgx::EdgeLight EdgeLightFromSceneTune(const EdgeTune& tune) {
                      tune.softnessDp, tune.alpha);
 }
 
+// ★ 关于 blurPx：这里读 tune.blurDp（编辑值），不再读 tune.blurAppliedDp。
+//
+//   原本的设计是"UI 改 blurDp、渲染读 blurAppliedDp，由 Registry 的 Deferred
+//   机制在 Commit() 时同步"。但主题菜单（secondary_imgui）里的滑块是直接写
+//   &scene.card.blurDp 的 —— 它不经过 Registry，于是 blurAppliedDp 永远停在
+//   初始化时的 10.0，拖动滑块完全没有反应（用户实测）。
+//
+//   改读编辑值后两条路径都正确：
+//     · 调试面板：Registry 写 blurDp，这里当帧就读到新值（比原来更快一帧）；
+//     · 主题菜单：滑块写 blurDp，这里同样当帧读到。
+//   glRunGather 内部对"模糊半径没变"有跳过判断，所以不会因此每帧重建模糊纹理。
 PanelStyle BuildPanelStyle(const PanelTune& tune) {
     PanelStyle style;
     style.corners = tune.corners();
     style.optics.colorBoost = tune.colorBoost;
-    style.optics.blurPx = lgx::px(tune.blurAppliedDp);   // 生效值（帧边界提交）
+    style.optics.blurPx = lgx::px(tune.blurDp);          // 直接读编辑值（见下方说明）
     style.optics.lensHeightPx = lgx::px(tune.lensHeightDp);
     style.optics.lensAmountPx = lgx::px(tune.lensAmountDp);
     style.optics.depthAmount = tune.depthAmount;
@@ -108,7 +119,7 @@ PanelStyle BuildWindowStyle(const WindowTune& tune) {
     PanelStyle style;
     style.corners = Corners::rounded(lgx::px(tune.cornerDp));
     style.optics.colorBoost = tune.colorBoost;
-    style.optics.blurPx = lgx::px(tune.blurAppliedDp);   // 生效值（帧边界提交）
+    style.optics.blurPx = lgx::px(tune.blurDp);          // 直接读编辑值（见下方说明）
     style.optics.lensHeightPx = lgx::px(tune.lensHeightDp);
     style.optics.lensAmountPx = lgx::px(tune.lensAmountDp);
     style.optics.depthAmount = tune.depthOn ? 1.0f : 0.0f;
