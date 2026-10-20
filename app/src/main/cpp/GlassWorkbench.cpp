@@ -444,6 +444,16 @@ bool DrawParamRow(const std::string& targetId, Target& target, std::size_t param
         if (ImGui::SliderFloat("##slider", &edited, slot.desc.minF, slot.desc.maxF, "%.3f")) {
           registry.SetF(targetId, slot.desc.id, edited, ChangeOrigin::Ui);
           changed = true;
+#if defined(__ANDROID__)
+          {
+            static FILE* uiFile = std::fopen("/data/local/tmp/aurora_probe.log", "a");
+            if (uiFile != nullptr) {
+              std::fprintf(uiFile, "UI-DRAG %s / %s = %.4f\n", targetId.c_str(),
+                           slot.desc.id.c_str(), static_cast<double>(edited));
+              std::fflush(uiFile);
+            }
+          }
+#endif
         }
         break;
       }
