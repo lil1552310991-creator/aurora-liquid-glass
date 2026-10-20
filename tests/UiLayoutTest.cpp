@@ -21,6 +21,7 @@
 #include "UiLayout.h"
 
 #include <cassert>
+#include <cmath>
 #include <cstdio>
 #include <vector>
 
@@ -163,5 +164,19 @@ int main() {
     assert(NeedsRelayout(1080.0f, 2376.0f, 1080.0f, 1200.0f));
   }
 
-  std::puts("UiLayoutTest: 9 screens + 8 property groups passed");
+  // -- 必须留出可抓取的空白（用户要求：留空余方便拖边缘改大小）--
+  // 反面教材是上一版：窗口吃满可用空间，四边都贴屏，触摸没有 hover，
+  // 边缘判定又只认几个像素 => 根本拖不动。
+  for (const Screen& s : screens) {
+    Input in;
+    in.screenW = s.w;
+    in.screenH = s.h;
+    const Layout layout = Compute(in);
+    const float rightGap = s.w - fmaxf(layout.theme.right(), layout.secondary.right());
+    assert(rightGap >= 62.0f);
+    const float bottomGap = s.h - fmaxf(layout.theme.bottom(), layout.secondary.bottom());
+    assert(bottomGap >= 62.0f);
+  }
+
+  std::puts("UiLayoutTest: 9 screens + 9 property groups passed");
 }

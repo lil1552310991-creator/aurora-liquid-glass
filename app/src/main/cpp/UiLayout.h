@@ -52,6 +52,9 @@ struct Layout final {
 
 namespace detail {
 
+// ★ 布局不追求"占满整屏"。用户明确要求：留出空余方便拖边缘缩窗口。
+//   88% 是权衡值：留太多会让横屏调试面板高度不足，留太少又抓不到边。
+constexpr float kHeightFill = 0.88f;    // 窗口高度占可用高度的比例
 constexpr float kMargin = 16.0f;      // 屏幕边缘留白
 constexpr float kGap = 14.0f;         // 两个窗口之间
 constexpr float kMinSecondaryW = 320.0f;
@@ -92,11 +95,13 @@ inline Layout Compute(const Input& in) {
   if (out.horizontal) {
     // ---- 横屏：左右并排 ----
     // 二级窗口取可用宽度的 42%，但不超过理想宽度；主题窗口吃掉剩下的。
-    float secW = Clamp(availW * 0.42f, kMinSecondaryW, kPreferredSecondaryW);
-    secW = Clamp(secW, kMinSecondaryW, availW - kGap - kMinThemeW);
+    // 34%（原 42%）：更窄一点，右侧留白更多。
+    float secW = Clamp(availW * 0.34f, kMinSecondaryW, kPreferredSecondaryW);
     if (secW < kMinSecondaryW) secW = availW * 0.5f;   // 屏幕极窄的兜底
-    const float themeW = availW - secW - kGap;
-    const float height = availH;   // 两个窗口同高，都吃满可用高度
+    // 主题窗口占 52%，剩下约 14% 作右侧空白 —— 给"拖右边缘改宽度"用。
+    const float themeW = Clamp(availW * 0.52f, kMinThemeW, availW - secW - kGap);
+    // 高度只吃 88%：上下各留一点，方便抓上/下边缘。
+    const float height = availH * kHeightFill;
 
     out.secondary.x = kMargin;
     out.secondary.y = kMargin;
@@ -110,13 +115,16 @@ inline Layout Compute(const Input& in) {
   } else {
     // ---- 竖屏：上下堆叠 ----
     // 二级窗口取可用高度的 38%，但不超过理想高度；主题窗口吃掉剩下的。
-    float secH = Clamp(availH * 0.38f, kMinSecondaryH, kPreferredSecondaryH);
-    secH = Clamp(secH, kMinSecondaryH, availH - kGap - kMinThemeH);
-    if (secH < kMinSecondaryH) secH = availH * 0.5f;   // 屏幕极矮的兜底
-    const float themeH = availH - secH - kGap;
+    // 上下也留边：先按 88% 算出"可用高度"，再在它里面分。
+    const float usableH = availH * kHeightFill;
+    float secH = Clamp(usableH * 0.36f, kMinSecondaryH, kPreferredSecondaryH);
+    if (secH < kMinSecondaryH) secH = usableH * 0.5f;   // 屏幕极矮的兜底
+    const float themeH = usableH - secH - kGap;
     // 宽度两者一致：触摸拦截区是并集，宽度对齐能少圈无用区域。
-    const float width = Clamp(availW, 0.0f, kPreferredSecondaryW);
-
+    // 宽度也只吃 92%：右侧留出可抓取的空白。
+    // 720p 竖屏时 availW 只有 688，吃满就完全贴边、拖不动宽度 ——
+    // 这个数值有离线用例钉着（UiLayoutTest 的 rightGap 断言）。
+    const float width = Clamp(availW * 0.92f, 0.0f, kPreferredSecondaryW);
     out.secondary.x = kMargin;
     out.secondary.y = kMargin;
     out.secondary.w = width;
