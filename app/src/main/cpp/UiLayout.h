@@ -149,6 +149,32 @@ inline Layout Compute(const Input& in) {
     if (r.y < 0.0f) { r.y = 0.0f; r.h = in.screenH; }
   };
   sanitize(out.secondary);
+
+  // ---- 居中 ----
+  //
+  //   上面的尺寸是按"从边距开始摆"算的，结果是整体贴在左上角。用户要的是
+  //   **整体居中**：把两个窗口的包络框搬到屏幕正中，窗口之间的相对位置不变。
+  //   因为尺寸已经留过边（高度 88%、横向留 14%），居中后四边空白是均匀的。
+  {
+    const float envLeft = out.secondary.x < out.theme.x ? out.secondary.x : out.theme.x;
+    const float envTop = out.secondary.y < out.theme.y ? out.secondary.y : out.theme.y;
+    const float envRight = out.secondary.right() > out.theme.right() ? out.secondary.right()
+                                                                   : out.theme.right();
+    const float envBottom = out.secondary.bottom() > out.theme.bottom() ? out.secondary.bottom()
+                                                                      : out.theme.bottom();
+    const float envW = envRight - envLeft;
+    const float envH = envBottom - envTop;
+    // 只在包络确实装得下时居中；装不下（极端小屏）就保持原样，交给 sanitize 兜底。
+    if (envW > 0.0f && envW <= in.screenW && envH > 0.0f && envH <= in.screenH) {
+      const float dx = (in.screenW - envW) * 0.5f - envLeft;
+      const float dy = (in.screenH - envH) * 0.5f - envTop;
+      out.secondary.x += dx;
+      out.secondary.y += dy;
+      out.theme.x += dx;
+      out.theme.y += dy;
+    }
+  }
+
   sanitize(out.theme);
   return out;
 }

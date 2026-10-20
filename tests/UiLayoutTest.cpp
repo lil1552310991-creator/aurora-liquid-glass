@@ -173,10 +173,30 @@ int main() {
     in.screenH = s.h;
     const Layout layout = Compute(in);
     const float rightGap = s.w - fmaxf(layout.theme.right(), layout.secondary.right());
-    assert(rightGap >= 62.0f);
+    assert(rightGap >= 40.0f);
     const float bottomGap = s.h - fmaxf(layout.theme.bottom(), layout.secondary.bottom());
-    assert(bottomGap >= 62.0f);
+    assert(bottomGap >= 40.0f);
   }
 
-  std::puts("UiLayoutTest: 9 screens + 9 property groups passed");
+  // -- 必须居中：左右边距相等、上下边距相等（用户要求）--
+  // 之前是"从边距开始摆"，整体贴左上角。现在把包络框搬到屏幕正中。
+  for (const Screen& s : screens) {
+    Input in;
+    in.screenW = s.w;
+    in.screenH = s.h;
+    const Layout layout = Compute(in);
+    const float envL = fminf(layout.secondary.x, layout.theme.x);
+    const float envR = fmaxf(layout.secondary.right(), layout.theme.right());
+    const float envT = fminf(layout.secondary.y, layout.theme.y);
+    const float envB = fmaxf(layout.secondary.bottom(), layout.theme.bottom());
+    const float leftGap = envL;
+    const float rightGap = s.w - envR;
+    const float topGap = envT;
+    const float bottomGap = s.h - envB;
+    constexpr float kSym = 1.5f;
+    assert(fabsf(leftGap - rightGap) <= kSym);
+    assert(fabsf(topGap - bottomGap) <= kSym);
+  }
+
+  std::puts("UiLayoutTest: 9 screens + 10 property groups passed");
 }
