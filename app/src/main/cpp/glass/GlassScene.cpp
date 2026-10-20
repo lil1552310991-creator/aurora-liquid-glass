@@ -5,9 +5,18 @@
 //  外观，必须先确认那是有意的 —— tests/GlassRecipeTest.cpp 会盯住其中一部分。
 // =============================================================================
 #include "glass/GlassScene.h"
+#if defined(__ANDROID__)
+#include <android/log.h>
+#endif
 
 #include "glass/GlassRegistry.h"
+#if defined(__ANDROID__)
+#include <android/log.h>
+#endif
 #include "third_party/liquidglass/ytbl/GlassRecipes.h"
+#if defined(__ANDROID__)
+#include <android/log.h>
+#endif
 
 #include <cmath>
 #include <cstdio>
@@ -73,6 +82,29 @@ lgx::EdgeLight EdgeLightFromSceneTune(const EdgeTune& tune) {
 //     · 主题菜单：滑块写 blurDp，这里同样当帧读到。
 //   glRunGather 内部对"模糊半径没变"有跳过判断，所以不会因此每帧重建模糊纹理。
 PanelStyle BuildPanelStyle(const PanelTune& tune) {
+#if defined(__ANDROID__)
+    // ★ 诊断：玻璃参数是否真的被 UI 改动。只在值变化时打印，避免刷屏。
+    //   如果拖动主题菜单/调试面板的滑块后这里没有输出，说明控件没有写进 PanelTune；
+    //   如果有输出但画面不动，问题就在渲染端（style 已带新值却没被采纳）。
+    static float probeBlur = -999.0f;
+    static float probeLensHeight = -999.0f;
+    static float probeLensAmount = -999.0f;
+    static float probeCorner = -999.0f;
+    if (tune.blurDp != probeBlur || tune.lensHeightDp != probeLensHeight ||
+        tune.lensAmountDp != probeLensAmount || tune.cornerTlDp != probeCorner) {
+        probeBlur = tune.blurDp;
+        probeLensHeight = tune.lensHeightDp;
+        probeLensAmount = tune.lensAmountDp;
+        probeCorner = tune.cornerTlDp;
+        __android_log_print(ANDROID_LOG_INFO, "AuroraParam",
+                            "TUNE blur=%.3f lensH=%.3f lensA=%.3f cornerTl=%.3f spectral=%.3f",
+                            static_cast<double>(tune.blurDp),
+                            static_cast<double>(tune.lensHeightDp),
+                            static_cast<double>(tune.lensAmountDp),
+                            static_cast<double>(tune.cornerTlDp),
+                            static_cast<double>(tune.spectralOn ? tune.dispersion : 0.0f));
+    }
+#endif
     PanelStyle style;
     style.corners = tune.corners();
     style.optics.colorBoost = tune.colorBoost;
