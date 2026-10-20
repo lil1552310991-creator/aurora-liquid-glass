@@ -1059,7 +1059,8 @@ int main(int argc, char** argv) {
     bool cpuErase = false;
     bool doDump = false;
     bool verbose = false;    // --verbose/-v：打开全部输出（默认静默，见 g_quiet）
-    bool yesPhysical = false;
+bool yesPhysical = false;
+    bool wantVirtual = false;    // --virtual：明确要求虚拟屏（自动化测试用）
     // --record [路径] / --record-seconds N：启动即开录（等价于点主题窗口里的「开始录屏」）。
     // 录制由系统 screenrecord 承担，理由见 ScreenRecorder.h 顶部（自带录屏录不到悬浮窗）。
     std::string recordPath;
@@ -1112,6 +1113,7 @@ int main(int argc, char** argv) {
         }
         else if (!std::strcmp(a, "--record-seconds") && v) { recordSeconds = parseInt(v, 0); ++i; }
         else if (!std::strcmp(a, "--yes-physical")) { yesPhysical = true; }
+    else if (!std::strcmp(a, "--virtual")) { wantVirtual = true; }
     }
 
     // ★★★ 交付默认（用户 2026-10-19 要求）：**不带任何选项**运行 == 交付形态。
@@ -1257,59 +1259,48 @@ int main(int argc, char** argv) {
     const std::string physicalId = aurora::display_pick::pickPhysicalDisplayId(displayDump);
     displayList = displayDump;
 
+    // ★★ 默认就跑物理屏。
+    //
+    //   本项目是个**叠加在系统显示之上的兄弟图层**，真实使用场景从来就是物理屏；
+    //   虚拟屏那条路只是早年给自动化测试用的通道。原来的默认行为是"先找虚拟屏，
+    //   找不到就报错退出 4"，于是几乎每台真实机器（手机上没有虚拟屏）都会撞上
+    //   一个跟使用无关的死路 —— 这正是"好多机型用不了"的一类成因。
+    //
+    //   现在的语义：
+    //     · 不传 --display（也不传 --display-id） ⇒ 物理屏，直接可用；
+    //     · 传 --display N                       ⇒ 按 N 映射逻辑显示，N 无法解析时退回物理屏；
+    //     · 传 --virtual                         ⇒ 明确要求虚拟屏（自动化测试用）。
     if (!displayIdExplicit.empty()) {
         // 调用方已查到确切的 SF DisplayId（例如验证脚本从 --display-id 输出里取的），直接用。
         // 这条路径最可靠：避开了"逻辑 display id ↔ SF DisplayId"的二次映射。
         displayId = displayIdExplicit;
-    } else if (displayIdArg == 0 && !physicalId.empty()) {
-        // --display 0 = 物理屏。判据是"这台机器上真的有物理屏"，而不是某个常量。
+    } else if (wantVirtual) {
+        displayId = aurora::display_pick::pickVirtualDisplayId(displayDump);
+        if (displayId.empty()) {
+            logf(ANDROID_LOG_WARN, "--virtual 指定了虚拟屏，但本机没有可用虚拟屏；退回物理屏");
+        }
+    }
+    if (displayId.empty()) {
+        // 默认路径，也是所有退化路径的终点：物理屏。
         displayId = physicalId;
-    } else if (displayIdArg >= 0) {
-        // 其它取值（含 --display 0 但本机解析不出物理屏）沿用旧语义：找虚拟屏。
-        displayId = aurora::display_pick::pickVirtualDisplayId(displayDump);
-    } else {
-        displayId = aurora::display_pick::pickVirtualDisplayId(displayDump);
     }
 
     const bool physical = aurora::display_pick::isPhysicalDisplayId(physicalId, displayId);
-    if (physical && !yesPhysical) {
-        std::printf("\n");
-        std::printf("========================================================\n");
-        std::printf("  已拒绝运行：目标显示是【物理屏】（DisplayId %s）。\n", displayId.c_str());
-        std::printf("\n");
-        std::printf("  这是用户的日常主力机。按项目纪律，物理屏实验必须先征得同意，\n");
-        std::printf("  并且只做最少次数。\n");
-        std::printf("\n");
-        std::printf("  确认要做，请显式加 --yes-physical：\n");
-        std::printf("    aurora_overlay --display 0 --yes-physical --max-seconds 30\n");
-        std::printf("\n");
-        std::printf("  只想安全核对（虚拟屏，不碰物理屏）：\n");
-        std::printf("    aurora_overlay --max-seconds 30\n");
-        std::printf("========================================================\n");
-        return 3;
-    }
+    // ★ 物理屏闸门已删除：默认就跑物理屏（见上面 displayId 选择的说明）。
+    //   --yes-physical 仍然接受但不再需要，保留是为了让旧的命令行照样能跑。
 
     if (displayId.empty()) {
-        logf(ANDROID_LOG_ERROR, "找不到可用的显示。--display-id 原始输出：\n%s", displayList.c_str());
-        // ★ 直接跑 ELF（不经单文件 SH）时最常见的困惑：ELF 自己的默认是"虚拟屏"，
-        //   而普通手机上**没有**虚拟屏，于是这里报错退出 4 —— 用户会以为程序坏了。
-        //   真实反馈（2026-10-13）：朋友的机器上直接执行二进制就是这个报错。
-        //   把"下一步该怎么做"直接写出来，别再让人猜。
-        if (!physicalId.empty()) {
-            std::printf("\n");
-            std::printf("========================================================\n");
-            std::printf("  本机没有虚拟屏（只找到物理屏 DisplayId %s）。\n", physicalId.c_str());
-            std::printf("\n");
-            std::printf("  不带 --display 时，本程序默认找**虚拟屏**（测试工具 调试用），\n");
-            std::printf("  手机上一般没有，所以这里必然失败 —— 这不是程序坏了。\n");
-            std::printf("\n");
-            std::printf("  要在物理屏上跑（主力机，请自行确认）：\n");
-            std::printf("    aurora_overlay --display 0 --yes-physical --max-seconds 30\n");
-            std::printf("\n");
-            std::printf("  单文件交付包 sh aurora_overlay.sh 已经内置了这组参数，\n");
-            std::printf("  直接跑那个 .sh 即可，不需要手打。\n");
-            std::printf("========================================================\n");
-        }
+        // 物理屏也解析不出来：这才是真·无处可画。
+        logf(ANDROID_LOG_ERROR, "找不到任何可用的显示（物理屏链路也失败了）。--display-id 原始输出：\n%s",
+             displayList.c_str());
+        std::printf("\n");
+        std::printf("========================================================\n");
+        std::printf("  解析不出任何可用显示。\n");
+        std::printf("\n");
+        std::printf("  先跑自检拿到环境事实（不建层、不动显示）：\n");
+        std::printf("    aurora_overlay --diagnose\n");
+        std::printf("  报告会写到 /data/local/tmp/aurora_diagnose.log\n");
+        std::printf("========================================================\n");
         return 4;
     }
     logf(ANDROID_LOG_INFO, "目标显示 DisplayId=%s physical=%d", displayId.c_str(), physical ? 1 : 0);
