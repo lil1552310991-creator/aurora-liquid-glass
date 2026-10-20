@@ -1265,13 +1265,25 @@ void DrawGlassWorkbench() {
   // ---- 分页栏 ----
   // 分页对象 = 顶层目标（parent == secondary_window）；子层在页面内用一排按钮选择。
   // 这样分页数量可控，又不会漏掉任何子层（它们都是注册表里的独立目标）。
+  //
+  // ★★ 必须**同时**收录根目标本身（id == "secondary_window"）。
+  //
+  //   根目标 `BindWindowTarget` 的 desc.id 就是 "secondary_window"，它的 desc.parent
+  //   是空串。原来只按 `parent == "secondary_window"` 筛选，于是"整窗口"这一页
+  //   **从来没有出现在分页栏里** —— 用户能看到的第一个分页是"液态玻璃卡片"。
+  //   后果：所有想调"整个窗口的圆角/模糊/折射"的尝试，实际拖的都是卡片或按钮，
+  //   窗口一个字节都没变（实测：BuildWindowStyle 的 cornerDp 恒为默认 28.000，
+  //   而 PanelTune 的值在 16/24/64/96 之间乱跳）。
   std::vector<const Target*> pages;
   if (workbench.searchActive && workbench.search[0] != 0) {
     for (const Target* target : registry.Search(workbench.search)) pages.push_back(target);
   } else {
     for (std::size_t index : registry.DisplayOrder()) {
       const Target& target = registry.TargetAt(index);
-      if (target.desc.parent == "secondary_window") pages.push_back(&target);
+      if (target.desc.parent == "secondary_window" ||
+          target.desc.id == "secondary_window") {
+        pages.push_back(&target);
+      }
     }
   }
   if (pages.empty()) {
