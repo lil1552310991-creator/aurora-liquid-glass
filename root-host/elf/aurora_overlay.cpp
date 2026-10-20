@@ -533,23 +533,7 @@ std::string runCapture(const char* cmd, size_t maxBytes = 4096) {
     return out;
 }
 
-/** 从 `dumpsys SurfaceFlinger --display-id` 的输出里挑一台非物理屏的 DisplayId。 */
-// 保留：早期内部调用点用过；现在 --virtual 直接调 aurora::display_pick 里的版本。
-[[maybe_unused]]
-std::string pickVirtualDisplayId(std::string* allDisplays) {
-    const std::string dump = runCapture("dumpsys SurfaceFlinger --display-id 2>/dev/null");
-    if (allDisplays != nullptr) *allDisplays = dump;
-    return aurora::display_pick::pickVirtualDisplayId(dump);
-}
 
-/**
- * 从 `dumpsys SurfaceFlinger --display-id` 的输出里取某台显示的 displayName。
- * 物理屏的 displayName 是空串（`displayName=""`），虚拟屏通常是 "AgentVirtualDisplay"。
- * 这个名字是 `DisplayId → layerStack` 退路查找的钥匙（见 findLayerStack）。
- */
-std::string findDisplayName(const std::string& dump, const std::string& displayId) {
-    return aurora::display_pick::findDisplayName(dump, displayId);
-}
 
 int parseInt(const char* s, int fallback) {
     if (s == nullptr) return fallback;
@@ -558,93 +542,6 @@ int parseInt(const char* s, int fallback) {
     return (end == s) ? fallback : static_cast<int>(v);
 }
 
-/**
- * 现查某台显示对应的 layerStack。
- *
- * ★ 必须现查、不能硬编码：测试工具 的虚拟显示每次重建 layerStack 都会变
- *   （本项目先后见过 6 / 19 / 20 / 22）。传错值图层就落不到目标显示上，
- *   表现为「程序在跑但屏幕上什么都没有」，很难归因。
- *
- * ★★ 这里有一个实测踩过的坑：**不能拿 SF 的 DisplayId 去 `dumpsys display` 里找**。
- *   `dumpsys display` 用的是**逻辑 displayId**（虚拟屏是 22）与 uniqueId
- *   （`virtual:android,0,AgentVirtualDisplay,19`），**都不含 SF 的 uint64 DisplayId**
- *   （11529215047573656498）。按 DisplayId 匹配永远找不到。
- *
- * 正确做法（两级，按可靠性排序）：
- *   1) **首选**：`dumpsys SurfaceFlinger` 里 `Display <uint64 DisplayId> (virtual, "...")`
- *      这个显示头之后紧跟 `layerFilter={layerStack=N ...}` —— 这是 DisplayId → layerStack
- *      的**直接映射**，不经过任何中间 id 换算。
- *   2) **退路**：按显示**名字**去 `dumpsys display` 的
- *      `mBaseDisplayInfo=DisplayInfo{"<name>" ... }` 块里取 `layerStack N`。
- *      （块的其余部分可能很长，所以按行取即可 —— 实测 layerStack 与其余字段同一行。）
- *
- * displayName 为空表示物理屏（其 displayName=""），此时直接给 0。
- */
-int findLayerStack(const std::string& displayId, const std::string& displayName) {
-    // ★ displayId 解析失败**不等于**没有可用显示：各厂商 --display-id 的格式不统一，
-    //   原来直接 return -1 ⇒ 主流程判死退出；现在走后面的兜底链（物理屏 layerStack 恒 0）。
-
-    // ---- 1) 首选：SurfaceFlinger 的 DisplayId → layerFilter={layerStack=N} ----
-    {
-        const std::string sf = runCapture("dumpsys SurfaceFlinger 2>/dev/null", 6u << 20);
-        const std::string needle = "Display " + displayId + " (";
-        size_t pos = 0;
-        while ((pos = sf.find(needle, pos)) != std::string::npos) {
-            pos += needle.size();
-            // 在这个显示头之后的一小段里找 layerStack=（找太远会串到下一台显示）
-            const size_t window = 600;
-            const size_t end = (pos + window < sf.size()) ? pos + window : sf.size();
-            const size_t ls = sf.find("layerStack=", pos);
-            if (ls != std::string::npos && ls < end) {
-                const int v = parseInt(sf.c_str() + ls + 11, -1);
-                if (v >= 0) return v;
-            }
-        }
-    }
-
-    // ---- 2) 退路：按显示名字在 dumpsys display 里找 ----
-    if (!displayName.empty()) {
-        const std::string dump = runCapture("dumpsys display 2>/dev/null", 2u << 20);
-        const std::string key = "DisplayInfo{\"" + displayName + "\"";
-        const size_t pos = dump.find(key);
-        if (pos != std::string::npos) {
-            size_t end = dump.find('\n', pos);
-            if (end == std::string::npos) end = dump.size();
-            const std::string line = dump.substr(pos, end - pos);
-            const size_t ls = line.find("layerStack ");
-            if (ls != std::string::npos) {
-                const int v = parseInt(line.c_str() + ls + 11, -1);
-                if (v >= 0) return v;
-            }
-        }
-    }
-
-    // ---- 3) 物理屏没有 displayName，layerStack 恒为 0 ----
-    // ★ 无条件兜底：本程序画的是兄弟图层，落在一台显示上的默认层栈就是 0。
-    //   某些 ROM 既解析不出 layerStack= 也没有 displayName，放宽前会直接退出；
-    //   放宽后在 0 上至少能跑（显示可能不对，但比完全起不来好），且日志会标注。
-    {
-        logf(ANDROID_LOG_WARN, "layerStack 未解析出来（DisplayId=%s displayName=%s），兜底用 0",
-             displayId.empty() ? "空" : displayId.c_str(),
-             displayName.empty() ? "空" : displayName.c_str());
-        return 0;
-    }
-}
-
-// WMS uses a logical display ID; SurfaceFlinger uses a different uint64 ID.
-// Resolve it from the active display description rather than equating it with layerStack.
-int findLogicalDisplayId(const std::string& displayName, bool physical) {
-    if (physical) return 0;
-    if (displayName.empty()) return -1;
-    const std::string dump = runCapture("dumpsys display 2>/dev/null", 2u << 20);
-    const std::string key = "mBaseDisplayInfo=DisplayInfo{\"" + displayName + "\"";
-    const size_t start = dump.find(key);
-    if (start == std::string::npos) return -1;
-    const size_t end = dump.find('\n', start);
-    const size_t id = dump.find("displayId ", start);
-    if (id == std::string::npos || (end != std::string::npos && id > end)) return -1;
-    return parseInt(dump.c_str() + id + 10, -1);
-}
 
 // ---------------------------------------------------------------------------
 // Legacy screencap backend for explicit A/B diagnostics (--capture-backend screencap).
@@ -1063,7 +960,6 @@ int main(int argc, char** argv) {
     bool verbose = false;    // --verbose/-v：打开全部输出（默认静默，见 g_quiet）
 bool yesPhysical = false;    // 兼容旧命令行；物理屏闸门已删除，此标记不再影响行为
     (void)yesPhysical;
-    bool wantVirtual = false;    // --virtual：明确要求虚拟屏（自动化测试用）
     // --record [路径] / --record-seconds N：启动即开录（等价于点主题窗口里的「开始录屏」）。
     // 录制由系统 screenrecord 承担，理由见 ScreenRecorder.h 顶部（自带录屏录不到悬浮窗）。
     std::string recordPath;
@@ -1116,7 +1012,6 @@ bool yesPhysical = false;    // 兼容旧命令行；物理屏闸门已删除，
         }
         else if (!std::strcmp(a, "--record-seconds") && v) { recordSeconds = parseInt(v, 0); ++i; }
         else if (!std::strcmp(a, "--yes-physical")) { yesPhysical = true; }
-    else if (!std::strcmp(a, "--virtual")) { wantVirtual = true; }
     }
 
     // ★★★ 交付默认（用户 2026-10-19 要求）：**不带任何选项**运行 == 交付形态。
@@ -1250,63 +1145,14 @@ bool yesPhysical = false;    // 兼容旧命令行；物理屏闸门已删除，
         return 0;
     }
 
-    // ---- 解析目标显示 ----
-    std::string displayList;
-    std::string displayId;
-    // ★★ 物理屏的 DisplayId 必须**现场解析**，绝不能写死。
-    //   真实事故：这里原来比较的是开发机的 `Display 1111111111111111111 (HWC display 0)`，
-    //   用户把单文件包发给朋友后，朋友机器上是 `Display 2222222222222222222 (HWC display 0)`
-    //   ⇒ 字符串不匹配 ⇒ 走回退分支找虚拟屏 ⇒ 朋友机器上没有虚拟屏
-    //   ⇒ 直接报「找不到可用的显示」退出 4。
-    const std::string displayDump = runCapture("dumpsys SurfaceFlinger --display-id 2>/dev/null");
-    const std::string physicalId = aurora::display_pick::pickPhysicalDisplayId(displayDump);
-    displayList = displayDump;
-
-    // ★★ 默认就跑物理屏。
+    // ---- 目标显示：只有物理屏这一个答案 ----
     //
-    //   本项目是个**叠加在系统显示之上的兄弟图层**，真实使用场景从来就是物理屏；
-    //   虚拟屏那条路只是早年给自动化测试用的通道。原来的默认行为是"先找虚拟屏，
-    //   找不到就报错退出 4"，于是几乎每台真实机器（手机上没有虚拟屏）都会撞上
-    //   一个跟使用无关的死路 —— 这正是"好多机型用不了"的一类成因。
-    //
-    //   现在的语义：
-    //     · 不传 --display（也不传 --display-id） ⇒ 物理屏，直接可用；
-    //     · 传 --display N                       ⇒ 按 N 映射逻辑显示，N 无法解析时退回物理屏；
-    //     · 传 --virtual                         ⇒ 明确要求虚拟屏（自动化测试用）。
-    if (!displayIdExplicit.empty()) {
-        // 调用方已查到确切的 SF DisplayId（例如验证脚本从 --display-id 输出里取的），直接用。
-        // 这条路径最可靠：避开了"逻辑 display id ↔ SF DisplayId"的二次映射。
-        displayId = displayIdExplicit;
-    } else if (wantVirtual) {
-        displayId = aurora::display_pick::pickVirtualDisplayId(displayDump);
-        if (displayId.empty()) {
-            logf(ANDROID_LOG_WARN, "--virtual 指定了虚拟屏，但本机没有可用虚拟屏；退回物理屏");
-        }
-    }
-    if (displayId.empty()) {
-        // 默认路径，也是所有退化路径的终点：物理屏。
-        displayId = physicalId;
-    }
-
-    const bool physical = aurora::display_pick::isPhysicalDisplayId(physicalId, displayId);
-    // ★ 物理屏闸门已删除：默认就跑物理屏（见上面 displayId 选择的说明）。
-    //   --yes-physical 仍然接受但不再需要，保留是为了让旧的命令行照样能跑。
-
-    if (displayId.empty()) {
-        // 物理屏也解析不出来：这才是真·无处可画。
-        logf(ANDROID_LOG_ERROR, "找不到任何可用的显示（物理屏链路也失败了）。--display-id 原始输出：\n%s",
-             displayList.c_str());
-        std::printf("\n");
-        std::printf("========================================================\n");
-        std::printf("  解析不出任何可用显示。\n");
-        std::printf("\n");
-        std::printf("  先跑自检拿到环境事实（不建层、不动显示）：\n");
-        std::printf("    aurora_overlay --diagnose\n");
-        std::printf("  报告会写到 /data/local/tmp/aurora_diagnose.log\n");
-        std::printf("========================================================\n");
-        return 4;
-    }
-    logf(ANDROID_LOG_INFO, "目标显示 DisplayId=%s physical=%d", displayId.c_str(), physical ? 1 : 0);
+    //   ★ 这里曾经是一整套"解析 SurfaceFlinger DisplayId → 挑物理屏/虚拟屏 →
+    //     失败时退出 4"的逻辑。删掉的理由是它解决的问题不存在：
+    //     本程序是**叠加在系统显示之上的兄弟图层**，只会画在物理屏上。
+    //     建层不需要 DisplayId（parent 传 null 即兄弟层），物理屏的 layerStack
+    //     与 WMS 逻辑 displayId 又都恒为 0。
+    //     --display / --display-id / --layer-stack 仍保留为手动覆盖，供特殊环境使用。
 
     // ---- 信号与看门狗 ----
     signal(SIGINT, onSignal);
@@ -1334,80 +1180,56 @@ bool yesPhysical = false;    // 兼容旧命令行；物理屏闸门已删除，
 
 
 
-    // 图层尺寸：整屏。因为照搬的界面里两个 ImGui 窗口都可以被用户拖动，
-    // 图层必须够大。整屏图层本身不危险 —— 危险的是 touchOcclusionMode 保持默认，
+    // 图层尺寸：整屏。因为照搬的界面里两个 ImGui 窗口都可以被用户拖动，图层必须够大。
+    // 整屏图层本身不危险 —— 危险的是 touchOcclusionMode 保持默认，
     // 那一项在 attachInputWindow 里被显式设成 ALLOW(2)。
-    // layerStack 必须现查（虚拟屏每次重建都会变），除非调用方显式给了。
-    const std::string displayName = findDisplayName(displayList, displayId);
-    logf(ANDROID_LOG_INFO, "目标显示名 = \"%s\"", displayName.c_str());
-    int layerStack = layerStackArg;
-    if (layerStack < 0) {
-        layerStack = findLayerStack(displayId, displayName);
+    //
+    // ★★ 这里曾经有一整条 dumpsys 解析链（SurfaceFlinger DisplayId → displayName →
+    //    layerStack → WMS 逻辑 displayId → DisplayInfo 尺寸/旋转）。它存在的原因只有一个：
+    //    虚拟屏每次重建 id 都会变。但**本项目只画在物理屏上**，于是：
+    //      · 建层不需要 DisplayId —— createSurfaceChecked 的 parent 传 null 就是兄弟层；
+    //      · 物理屏的 layerStack 恒为 0；
+    //      · 物理屏的 WMS 逻辑 displayId 恒为 0（Display.DEFAULT_DISPLAY）；
+    //      · 尺寸/旋转用 wm size + dumpsys display 的 rotation 字段即可。
+    //    整条链删掉，直接少一个"格式对不上就起不来"的失效面。
+    //    需要特殊环境时仍可用 --display / --layer-stack 手动覆盖。
+    const int layerStack = layerStackArg >= 0 ? layerStackArg : 0;
+    const int logicalDisplayId = displayIdArg >= 0 ? displayIdArg : 0;
+
+    // 尺寸：wm size（Override 优先，它才是当前生效的）。
+    aurora::DisplayGeometry initialGeometry;
+    {
+        const std::string wmSize = runCapture("wm size 2>/dev/null", 1u << 16);
+        int width = 0;
+        int height = 0;
+        if (aurora::ParseWmSize(wmSize, &width, &height)) {
+            initialGeometry.width = width;
+            initialGeometry.height = height;
+        }
     }
-    if (layerStack < 0) {
-        logf(ANDROID_LOG_ERROR,
-             "无法确定 layerStack（DisplayId=%s）。用 --layer-stack N 显式指定。",
-             displayId.c_str());
-        // ★ 兼容性排查：把**原始 dumpsys 输出**一起落盘。
-        //   不同厂商（8 Gen 3 / 天玑 上的小米/OPPO/vivo/荣耀…）dumpsys 格式差异很大，
-        //   只写"找不到"无从判断是"格式没匹配"还是"真的没有"。这里保留证据。
+    // 旋转：只在真正需要时读一次。dumpsys display 的 DisplayInfo 里带 rotation N。
+    {
+        const std::string dump = runCapture("dumpsys display 2>/dev/null", 4u << 20);
+        const aurora::DisplayGeometry parsed = aurora::ParseDisplayGeometry(dump, logicalDisplayId);
+        if (parsed.valid()) {
+            initialGeometry.rotation = parsed.rotation;
+            // dumpsys 的角度可信时，尺寸也以它为准（它已经含旋转后的 real 宽高）。
+            initialGeometry.width = parsed.width;
+            initialGeometry.height = parsed.height;
+        }
+    }
+    if (!initialGeometry.valid()) {
+        logf(ANDROID_LOG_ERROR, "读不到屏幕尺寸（wm size 也没给出可用值），无法建图层");
         {
             std::string dump;
-            dump += "===== 无法确定 layerStack =====\n";
-            dump += "DisplayId   = " + displayId + "\n";
-            dump += "displayName = " + displayName + "\n";
-            dump += "\n----- dumpsys SurfaceFlinger --display-id -----\n";
-            dump += runCapture("dumpsys SurfaceFlinger --display-id 2>&1", 1u << 20);
-            dump += "\n----- dumpsys SurfaceFlinger (head 4000) -----\n";
-            dump += runCapture("dumpsys SurfaceFlinger 2>&1 | head -c 4000", 1u << 20);
+            dump += "===== 读不到屏幕尺寸 =====\n";
+            dump += "\n----- wm size -----\n";
+            dump += runCapture("wm size 2>&1", 1u << 16);
+            dump += "\n----- wm density -----\n";
+            dump += runCapture("wm density 2>&1", 1u << 16);
             dump += "\n----- dumpsys display (head 4000) -----\n";
             dump += runCapture("dumpsys display 2>&1 | head -c 4000", 1u << 20);
-            reportFailure("无法确定 layerStack（可用 --layer-stack N 指定）", dump.c_str());
-        }
-        aospglue::shutdown();
-        return 6;
-    }
-    const int logicalDisplayId = displayIdArg >= 0 ? displayIdArg
-        : findLogicalDisplayId(displayName, physical);
-    if (doCapture && captureBackend != "screencap" && logicalDisplayId < 0) {
-        logf(ANDROID_LOG_ERROR, "找不到WMS逻辑displayId，请指定 --display N");
-        {
-            std::string dump;
-            dump += "===== 找不到 WMS 逻辑 displayId =====\n";
-            dump += "displayName = " + displayName + "\n";
-            dump += "\n----- dumpsys display (head 6000) -----\n";
-            dump += runCapture("dumpsys display 2>&1 | head -c 6000", 1u << 20);
-            reportFailure("找不到 WMS 逻辑 displayId（可用 --display N 指定）", dump.c_str());
-        }
-        aospglue::shutdown();
-        return 6;
-    }
-    auto initialGeometry = aurora::ParseDisplayGeometry(
-        runCapture("dumpsys display 2>/dev/null", 4u << 20), logicalDisplayId);
-    // ★ 兜底：dumpsys 的 DisplayInfo 格式各厂商不同，严格解析失败时退回 wm size。
-    //   wm size 是稳定接口（`wm size` 输出 "Physical size: WxH" / "Override size: WxH"），
-    //   虽然不带旋转信息，但比"读不到尺寸就拒绝启动"好得多 —— 拿不到旋转时按 0 处理，
-    //   后续每帧还有 geometry 刷新逻辑会纠正。
-    if (!initialGeometry.valid()) {
-        const std::string wmSize = runCapture("wm size 2>/dev/null", 1u << 16);
-        int sw = 0;
-        int sh = 0;
-        if (aurora::ParseWmSize(wmSize, &sw, &sh)) {
-            initialGeometry.width = sw;
-            initialGeometry.height = sh;
-            initialGeometry.rotation = 0;
-            logf(ANDROID_LOG_WARN, "DisplayInfo 解析失败，改用 wm size 兜底：%dx%d", sw, sh);
-        }
-    }
-    if (!initialGeometry.valid()) {
-        logf(ANDROID_LOG_ERROR, "无法读取目标逻辑显示的当前尺寸/旋转，拒绝用固定竖屏尺寸启动");
-        {
-            std::string dump;
-            dump += "===== 无法读取逻辑显示几何 =====\n";
-            dump += "logicalDisplayId = " + std::to_string(logicalDisplayId) + "\n";
-            dump += "\n----- dumpsys display (head 6000) -----\n";
-            dump += runCapture("dumpsys display 2>&1 | head -c 6000", 1u << 20);
-            reportFailure("无法读取目标逻辑显示的尺寸/旋转", dump.c_str());
+            reportFailure("读不到屏幕尺寸", dump.c_str());
         }
         aospglue::shutdown();
         return 6;
@@ -1793,16 +1615,7 @@ bool yesPhysical = false;    // 兼容旧命令行；物理屏闸门已删除，
     // 而虚拟显示永远不是 top-focused（详见 docs/SOLVING_FIVE_ANDROID16_CHALLENGES.md 难题 5）。
     // 注意这与「玻璃覆盖层画在哪个显示」是两件事，互不冲突。
     ime.attach(&renderer, 0);
-    // ★ 但这时必须**说明白**：覆盖层在虚拟屏上时，键盘（如果显示的话）只会出现在
-    //   top-focused 的那块屏（物理屏）上，甚至根本不显示 —— 这属于 AOSP 的硬约束，
-    //   不是"输入法坏了"。以前没有任何提示，每次虚拟屏验收都会被误判一次
-    //   （build/recon/_pull/m.log 里"724 个触点、ime 恒为 0"就是这么来的）。
-    if (physical != true) {
-        logf(ANDROID_LOG_WARN,
-             "覆盖层画在非物理显示（%s）上：系统输入法只能绑定 top-focused 显示，"
-             "因此键盘不会出现在这块屏上。要验输入法请用 --display 0 --yes-physical。",
-             displayId.c_str());
-    }
+    // （"覆盖层画在虚拟屏上、键盘绑不到那块屏"的警告已删除：现在只会画在物理屏上。）
 
     // ---- 触摸：把多指 MOTION 逐触点喂给 Renderer ----
     //
@@ -1871,7 +1684,8 @@ bool yesPhysical = false;    // 兼容旧命令行；物理屏闸门已删除，
     if (captureBackend == "mirror") realtime->setMirrorOptions(true, static_cast<float>(captureFps));
     if (doCapture) {
         captureThread = std::thread([&] {
-            ScreenCapture legacy(displayId, downscale);
+            // screencap 后端按逻辑显示号抓图；物理屏就是 0。
+            ScreenCapture legacy(std::to_string(logicalDisplayId), downscale);
             const auto interval = std::chrono::nanoseconds(1000000000LL / captureFps);
             auto nextCapture = std::chrono::steady_clock::now();
             std::vector<std::uint8_t> rgba;
