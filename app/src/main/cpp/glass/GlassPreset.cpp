@@ -500,6 +500,25 @@ class AtomicTextWriter {
     return lastError_;
   }
 
+  // ★★ 必须显式停止后台线程。
+  //
+  //   原来是隐式析构：`std::thread` 销毁时若仍 joinable 就直接
+  //   std::terminate() ⇒ SIGABRT。而 Run() 的退出条件 `stop_` 从来没被置位，
+  //   线程一直阻塞在 cv_.wait 上 —— 于是**每次正常退出都会崩**。
+  //   真机实测：跑满 1893 帧正常收尾，紧接着 SIGABRT，栈是
+  //     AtomicTextWriter::~AtomicTextWriter() ← main
+  //
+  //   修法：置 stop_ → 唤醒 → join。写入本身是原子 rename，丢掉最后几百毫秒
+  //   的改动是可接受的（原注释已如此约定），但绝不能崩。
+  ~AtomicTextWriter() {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      stop_ = true;
+    }
+    cv_.notify_all();
+    if (thread_.joinable()) thread_.join();
+  }
+
  private:
   void Run() {
     std::unique_lock<std::mutex> lock(mutex_);
