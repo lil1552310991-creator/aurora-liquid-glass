@@ -39,7 +39,7 @@ $tests = @('DampedDragTest', 'LiquidMorphTest', 'TouchHighlightTest',
            'SelfFeedbackEraseTest', 'CapturePipelineTest',
            'InputRouterTest', 'GestureRouterTest', 'OverlayTouchRegionTest',
            'AndroidStrongReferenceTest', 'SceneCompositeTest', 'RenderBackendTest',
-           'DisplayPickTest', 'DisplayGeometryTest', 'NativeWindowProbeTest', 'RenderDamageTest', 'PanelCallbackBatchTest',
+           'DisplayPickTest', 'DisplayGeometryTest', 'UiLayoutTest', 'NativeWindowProbeTest', 'RenderDamageTest', 'PanelCallbackBatchTest',
            # 崩溃取证的 maps 解析：远端机器（朋友的手机）崩了只有这段信息能带回来，
            # 解析错会给出**错误的模块名** —— 比没有更糟，所以必须有离线回归。
            'CrashReportTest',

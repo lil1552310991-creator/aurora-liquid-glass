@@ -1,5 +1,6 @@
 #include "LiquidGlassRuntime.h"
 #include "glass/DebugHighlight.h"
+#include "UiLayout.h"
 
 #include "ScreenRecorder.h"   // 录屏开关（内置 screenrecord，见该头文件顶部的理由）
 #include "GlassWorkbench.h"   // ★ Liquid Glass Inspector 调试工作台
@@ -55,6 +56,16 @@ float g_themeRect[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 float g_imeRect[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 float g_themeWindowPos[2] = {16.0f, 730.0f};
 float g_themeWindowSize[2] = {760.0f, 1400.0f};
+
+// 上一帧用于布局的屏幕尺寸。只有它变了（横竖屏切换 / 分屏 / 折叠屏展开）
+// 才重新计算窗口位置与大小；尺寸没变时不覆盖用户自己拖好的窗口。
+// 布局算出来的理想位置/尺寸。与 g_themeWindowPos 不同：后者是上一帧的实际值
+// （含输入法避让位移，用于下一帧还原）。
+float g_themeLayoutPos[2] = {16.0f, 730.0f};
+float g_themeLayoutSize[2] = {760.0f, 1400.0f};
+
+float g_layoutScreenW = 0.0f;
+float g_layoutScreenH = 0.0f;
 float g_themeImeShift = 0.0f;
 
 // ===========================================================================
@@ -579,8 +590,47 @@ void DrawLiquidGlassShowcase() {
         //
         //   把两个窗口宽度对齐到 760 后，并集就是一个规整矩形 (16,16)-(776,2130)，
         //   拦截区收到 800 宽即可 —— 右侧留出 280 像素的穿透带。
-        ImGui::SetNextWindowSize(ImVec2(760.0f, 1400.0f), ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowPos(ImVec2(16.0f, 730.0f), ImGuiCond_FirstUseEver);
+        // ---- 窗口布局：跟随屏幕尺寸与朝向 ----
+        //
+        //   原来是写死的 760x1400 + 位置 (16,730)：竖屏 1080x2376 刚好够，
+        //   横屏 2376x1080 时 730+1400=2130 直接把大半截窗口甩到屏幕外，
+        //   底部参数永远够不到（用户反馈）。而且用的是 FirstUseEver，
+        //   横竖屏切换后也不会重算 —— 这就是"切一下就飘出去"的来源。
+        //
+        //   现在按 aurora::ui_layout 算：竖屏上下堆叠、横屏左右并排，
+        //   两种朝向都保证完整落在屏内，且尺寸是先算出来的（不是裁出来的）。
+        //   只有**屏幕尺寸真的变了**才强制重排，否则不覆盖用户自己拖好的位置。
+        const ImVec2 screenSize = ImGui::GetIO().DisplaySize;
+        const bool relayout =
+            aurora::ui_layout::NeedsRelayout(g_layoutScreenW, g_layoutScreenH,
+                                             screenSize.x, screenSize.y);
+        if (relayout) {
+            g_layoutScreenW = screenSize.x;
+            g_layoutScreenH = screenSize.y;
+            aurora::ui_layout::Input layoutInput;
+            layoutInput.screenW = screenSize.x;
+            layoutInput.screenH = screenSize.y;
+            const aurora::ui_layout::Layout layout = aurora::ui_layout::Compute(layoutInput);
+            if (layout.theme.Valid()) {
+                g_themeLayoutPos[0] = layout.theme.x;
+                g_themeLayoutPos[1] = layout.theme.y;
+                g_themeLayoutSize[0] = layout.theme.w;
+                g_themeLayoutSize[1] = layout.theme.h;
+                g_themeWindowPos[0] = layout.theme.x;
+                g_themeWindowPos[1] = layout.theme.y;
+                g_themeWindowSize[0] = layout.theme.w;
+                g_themeWindowSize[1] = layout.theme.h;
+                __android_log_print(ANDROID_LOG_INFO, kLogTag,
+                     "界面布局：屏幕 %.0fx%.0f (%s) 主题窗口 %.0fx%.0f @ (%.0f,%.0f)",
+                     screenSize.x, screenSize.y, layout.horizontal ? "横屏" : "竖屏",
+                     layout.theme.w, layout.theme.h, layout.theme.x, layout.theme.y);
+            }
+        }
+        // 屏幕尺寸变化那一帧用 Always 强制应用；其余用 FirstUseEver 让用户能自由拖动。
+        ImGui::SetNextWindowSize(ImVec2(g_themeLayoutSize[0], g_themeLayoutSize[1]),
+                                 relayout ? ImGuiCond_Always : ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowPos(ImVec2(g_themeLayoutPos[0], g_themeLayoutPos[1]),
+                                relayout ? ImGuiCond_Always : ImGuiCond_FirstUseEver);
         // ★ NoResize 是**真机踩出来的**：触摸没有 hover，ImGui 的窗口缩放判定
         //   依赖指针位置落在边框附近，而在密集面板里滑动滚动时很容易被误判成
         //   缩放 —— 实测把 1400 高的窗口拖成了约 370 高，而且每次滑动都缩一点。

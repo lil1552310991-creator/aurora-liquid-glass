@@ -1,5 +1,6 @@
 #include "secondary_imgui.h"
 #include "glass/DebugHighlight.h"
+#include "UiLayout.h"
 
 #include "ytbl/GlassUI.h"
 #include "PanelGestures.h"        // 手势内核（纯逻辑，离线回归见 tests/PanelGesturesTest.cpp）
@@ -2016,10 +2017,21 @@ void Draw() {
   const float screenW = fmaxf(1.0f, io.DisplaySize.x);
   const float screenH = fmaxf(1.0f, io.DisplaySize.y);
 
-  float defW = fminf(760.0f, screenW - 32.0f);
-  float defH = fminf(700.0f, screenH - 96.0f);
-  float defX = 16.0f;
-  float defY = 16.0f;
+  // ---- 二级窗口布局：与主题窗口共用同一套算法（aurora::ui_layout）----
+  //
+  //   原来是"760 宽、700 高，夹到屏内"，和主题窗口各自为政：竖屏时两者
+  //   宽度一致看着还行，横屏时二级窗口占满整宽、主题窗口被挤到屏幕外。
+  //   现在统一由 UiLayout 按朝向分配：竖屏上下堆叠、横屏左右并排，
+  //   两个窗口永远完整落在屏内且互不重叠。
+  aurora::ui_layout::Input layoutInput;
+  layoutInput.screenW = screenW;
+  layoutInput.screenH = screenH;
+  const aurora::ui_layout::Layout layout = aurora::ui_layout::Compute(layoutInput);
+  float defW = layout.secondary.Valid() ? layout.secondary.w : fminf(760.0f, screenW - 32.0f);
+  float defH = layout.secondary.Valid() ? layout.secondary.h : fminf(700.0f, screenH - 96.0f);
+  float defX = layout.secondary.Valid() ? layout.secondary.x : 16.0f;
+  float defY = layout.secondary.Valid() ? layout.secondary.y : 16.0f;
+  // 长按缩放算出的锚点仍然优先（那是用户主动指定的落点，比默认布局更权威）。
   {
     std::lock_guard<std::mutex> lock(s_AnchorMutex);
     if (s_AnchorValid) {
@@ -2034,8 +2046,21 @@ void Draw() {
   defH = fmaxf(180.0f, defH);
   defX = fmaxf(0.0f, fminf(defX, screenW - defW));
   defY = fmaxf(0.0f, fminf(defY, screenH - defH));
-  ImGui::SetNextWindowSize(ImVec2(defW, defH), ImGuiCond_FirstUseEver);
-  ImGui::SetNextWindowPos(ImVec2(defX, defY), ImGuiCond_FirstUseEver);
+
+  // 屏幕尺寸变了（横竖屏切换 / 分屏 / 折叠屏展开）就强制重排一次；
+  // 尺寸没变时用 FirstUseEver，保留用户自己拖好的位置与大小。
+  static float lastScreenW = 0.0f;
+  static float lastScreenH = 0.0f;
+  const bool relayout =
+      aurora::ui_layout::NeedsRelayout(lastScreenW, lastScreenH, screenW, screenH);
+  if (relayout) {
+    lastScreenW = screenW;
+    lastScreenH = screenH;
+  }
+  ImGui::SetNextWindowSize(ImVec2(defW, defH),
+                           relayout ? ImGuiCond_Always : ImGuiCond_FirstUseEver);
+  ImGui::SetNextWindowPos(ImVec2(defX, defY),
+                          relayout ? ImGuiCond_Always : ImGuiCond_FirstUseEver);
 
   bool open = s_Visible.load(std::memory_order_relaxed);
   // ★★ 手势契约（用户要求）：
