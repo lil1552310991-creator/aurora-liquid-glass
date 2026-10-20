@@ -506,6 +506,23 @@ void UpdateLiquidGlassDiagnostics(const HostCapabilities& host,
 }
 
 void DrawLiquidGlassShowcase() {
+    // ★★ 注册表 + 持久化泵：**无条件每帧跑**，与"展示窗口是否可见"无关。
+    //
+    //   这里曾经整个函数体都在 `if (g_visible)` 之内，于是：
+    //     · 用户在主菜单里拖动调试滑块 → `registry.SetX()` 把新值写进编辑字段、
+    //       并排进 pending_ 队列；
+    //     · 而把 pending_ 落到渲染字段（applyRef）的 `Commit()` 只在展示窗口可见
+    //       时才执行；
+    //     ⇒ 展示窗口没开/被关掉时，**所有走 applyRef 的延迟参数永远不会生效**，
+    //       表现就是"主菜单里的调试控件拖了完全没反应"（而少量直接写 ref 的参数
+    //       看起来能用 —— 这正是"有的能调、有的调了没反应"的来源）。
+    //
+    //   Commit() 对空队列是零成本（`if (pending_.empty()) return 0;`），
+    //   所以把它提到这里不会带来任何每帧开销。
+    if (g_initialized) {
+        aurora::glass::RegisterSecondaryTargets();       // 幂等
+        aurora::glass::PumpGlassWorkbenchPersistence();  // 恢复 + Commit + 去抖保存
+    }
     if (g_initialized && g_visible.load(std::memory_order_acquire)) {
         // The supplied demo selects Chinese whenever its embedded CJK font is
         // available. Aurora ships the same font asset, so preserve that UI
@@ -519,10 +536,8 @@ void DrawLiquidGlassShowcase() {
         //     · 用户停在「窗口缩放」页（不画「液态玻璃」页）时，恢复与自动保存
         //       原来也不会执行 ⇒ 改了模式却不会落盘。
         //   两条都属于"看起来能用、其实没记住"，必须堵掉。
-        {
-            aurora::glass::RegisterSecondaryTargets();      // 幂等
-            aurora::glass::PumpGlassWorkbenchPersistence(); // 首次恢复 + 去抖自动保存
-        }
+        // （注册表与 Commit 已移到函数开头无条件执行，见上方说明。）
+
         // ★ 这里原来是一句无条件的 `secondary_imgui::SetVisible(true);` ——
         //   它就是"二级窗口的 × 点了没反应"的根因（每帧把用户的关闭结果盖回去）。
         //   现在可见性推迟到**画完主题窗口之后**再设：主题窗口里有「显示二级窗口」
