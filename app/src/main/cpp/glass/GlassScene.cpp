@@ -164,6 +164,32 @@ PanelStyle BuildPanelStyle(const PanelTune& tune) {
 }
 
 PanelStyle BuildWindowStyle(const WindowTune& tune) {
+#if defined(__ANDROID__)
+    // ★ 独立探针："整窗口"是用户在主题窗口里要调的对象，必须单独可见。
+    {
+        static float wCorner = -999.0f;
+        static float wBlur = -999.0f;
+        static float wLensH = -999.0f;
+        static int wCalls = 0;
+        const bool force = (wCalls < 3);
+        if (force) ++wCalls;
+        if (force || tune.cornerDp != wCorner || tune.blurDp != wBlur ||
+            tune.lensHeightDp != wLensH) {
+            wCorner = tune.cornerDp;
+            wBlur = tune.blurDp;
+            wLensH = tune.lensHeightDp;
+            static FILE* wFile = std::fopen("/data/local/tmp/aurora_probe.log", "a");
+            if (wFile != nullptr) {
+                std::fprintf(wFile, "WINDOW corner=%.3f blur=%.3f lensH=%.3f glass=%d\n",
+                             static_cast<double>(tune.cornerDp),
+                             static_cast<double>(tune.blurDp),
+                             static_cast<double>(tune.lensHeightDp),
+                             tune.glassEnabled ? 1 : 0);
+                std::fflush(wFile);
+            }
+        }
+    }
+#endif
     PanelStyle style;
     style.corners = Corners::rounded(lgx::px(tune.cornerDp));
     style.optics.colorBoost = tune.colorBoost;
