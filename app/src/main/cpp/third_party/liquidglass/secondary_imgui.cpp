@@ -1,4 +1,5 @@
 #include "secondary_imgui.h"
+#include "glass/DebugHighlight.h"
 
 #include "ytbl/GlassUI.h"
 #include "PanelGestures.h"        // 手势内核（纯逻辑，离线回归见 tests/PanelGesturesTest.cpp）
@@ -1078,6 +1079,14 @@ static void DrawContents() {
     PumpButtonMotion(*motions[i], box);
     const lgx::Box drawn = MorphButtonBox(box, *motions[i], button.glowProgress());
     const bool clicked = button.draw(drawn);
+    // ★ 登记按钮矩形：选中「按钮 N」时高亮对应那枚 PillButton。
+    {
+      char buttonTarget[64];
+      std::snprintf(buttonTarget, sizeof buttonTarget, "pill_button_%d", i);
+      aurora::glass::debughl::TryMarkRect(
+          buttonTarget,
+          aurora::glass::debughl::Rect{box.left, box.top, box.right, box.bottom});
+    }
     DrawTouchSpot(drawn, *motions[i]);
     // ★★ 恢复「打开液态弹窗」按钮的点击行为（用户本轮明确要求，任务书 §三.A）：
     //    点它 ⇒ 弹窗打开，走与卡片区那个按钮**完全相同**的分支
@@ -1370,6 +1379,9 @@ static void DrawContents() {
       cardStyle.fallback = lgx::Rgba(pageBg.x, pageBg.y, pageBg.z, 1.0f);
     }
     lgx::drawPanel(cardStyle, lgx::Box(cardMin.x, cardMin.y, cardMax.x, cardMax.y));
+    // ★ 登记卡片矩形：调试面板选中"液态玻璃卡片"时会在它周围画取景框。
+    aurora::glass::debughl::TryMarkRect("secondary_window.card",
+        aurora::glass::debughl::Rect{cardMin.x, cardMin.y, cardMax.x, cardMax.y});
   }
   ImGui::Dummy(cardSize);
 
@@ -2276,6 +2288,10 @@ void Draw() {
       { const lgx::Box panelBox(pos.x, pos.y, max.x, max.y);
         ScopedPanelClip clip(windowStyle, panelBox);
         lgx::drawPanel(windowStyle, panelBox);
+        // ★ 登记整窗口矩形：选中"整窗口"时高亮整个二级窗口外壳。
+        aurora::glass::debughl::TryMarkRect(
+            "secondary_window",
+            aurora::glass::debughl::Rect{panelBox.left, panelBox.top, panelBox.right, panelBox.bottom});
 
         // ★★ 均匀"激活描边"层：让**四条边**同步加厚（见 ResizeActivationParams 的说明）
         //   · 同一套圆角 SDF ⇒ 四个圆角连续，不会出现直角/断裂/矩形遮罩；

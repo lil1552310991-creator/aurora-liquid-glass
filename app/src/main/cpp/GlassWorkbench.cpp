@@ -2,6 +2,7 @@
 //  调试工作台实现（见 GlassWorkbench.h 的三条职责）
 // =============================================================================
 #include "GlassWorkbench.h"
+#include "glass/DebugHighlight.h"
 
 #include "ParamRowLayout.h"   // ★ 参数行的响应式布局内核（纯逻辑，有离线回归）
 
@@ -1345,6 +1346,9 @@ void DrawGlassWorkbench() {
   workbench.page = bar.selected;
   const Target* page = pages[static_cast<std::size_t>(workbench.page)];
   Target* target = registry.MutableTarget(page->desc.id);
+  // ★ 把"当前调试的是谁"告诉高亮模块，它会在屏幕上那个组件周围画取景框。
+  //   放在这里而不是 DrawTargetParams 里：翻页时要立刻更新，不能等到参数行绘制。
+  aurora::glass::debughl::SetDebugTarget(page->desc.id.c_str());
 
   ImGui::Separator();
 

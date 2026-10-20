@@ -1,4 +1,5 @@
 #include "LiquidGlassRuntime.h"
+#include "glass/DebugHighlight.h"
 
 #include "ScreenRecorder.h"   // 录屏开关（内置 screenrecord，见该头文件顶部的理由）
 #include "GlassWorkbench.h"   // ★ Liquid Glass Inspector 调试工作台
@@ -522,6 +523,8 @@ void DrawLiquidGlassShowcase() {
     if (g_initialized) {
         aurora::glass::RegisterSecondaryTargets();       // 幂等
         aurora::glass::PumpGlassWorkbenchPersistence();  // 恢复 + Commit + 去抖保存
+        // ★ 每帧清掉上一帧的高亮矩形（保留选中的目标 id，它由调试面板维护）。
+        aurora::glass::debughl::BeginDebugFrame();
     }
     if (g_initialized && g_visible.load(std::memory_order_acquire)) {
         // The supplied demo selects Chinese whenever its embedded CJK font is
@@ -816,6 +819,9 @@ void DrawLiquidGlassShowcase() {
         // 主题窗口已经画完 ⇒ 它里面的开关这一帧就能生效。
         secondary_imgui::SetVisible(g_secondaryOpen);
         secondary_imgui::Draw();
+        // ★ 二级窗口画完再描高亮框：必须画在玻璃面板与内容之上，
+        //   而且此时所有组件的矩形都已经在 Draw() 里登记完毕。
+        aurora::glass::debughl::DrawDebugHighlight();
         // ★ 把二级窗口标题栏上那个 × 的点击结果读回来。
         //   不读回来，下一帧的 SetVisible(true) 又会把它打开 —— 这就是原来那个
         //   「点了叉没有任何效果」的 bug。
