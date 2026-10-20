@@ -276,6 +276,9 @@ struct GuiSyms {
     void* (*txSetFrameRate)(void*, const void*, float, int8_t, int8_t) = nullptr;
     void* (*txSetFrameRateSelectionPriority)(void*, const void*, int32_t) = nullptr;
     int32_t (*txApply)(void*, bool, bool) = nullptr;
+    // ★ 兼容 Android 13 及更早：那时 Transaction::apply() 不带参数。
+    //   符号完全不同（applyEv vs applyEbb），只认一个的话旧机器直接"缺符号"退出。
+    int32_t (*txApplyLegacy)(void*) = nullptr;
 
     // -- binder / libutils --
     void* (*ipcThreadStateSelf)() = nullptr;
@@ -469,6 +472,8 @@ inline bool resolveAll(std::string* why) {
     s.txSetFrameRateSelectionPriority = (decltype(s.txSetFrameRateSelectionPriority))R(
         "_ZN7android21SurfaceComposerClient11Transaction29setFrameRateSelectionPriorityERKNS_2spINS_14SurfaceControlEEEi",
         false);
+    s.txApplyLegacy = (decltype(s.txApplyLegacy))Rlib(
+        nullptr, "_ZN7android21SurfaceComposerClient11Transaction5applyEv", false);
     s.txApply = (decltype(s.txApply))R(
         "_ZN7android21SurfaceComposerClient11Transaction5applyEbb");
 
@@ -525,16 +530,20 @@ inline bool resolveAll(std::string* why) {
     const char* miss = nullptr;
     if (!s.string8Ctor) miss = "libgui: String8::String8(const char*)";
     else if (!s.metaCtor) miss = "libgui: gui::LayerMetadata::LayerMetadata()";
-    else if (!s.createSurface) miss = "libgui: SurfaceComposerClient::createSurface";
+    // createSurface / createSurfaceChecked 至少一个可用即可：
+    // 老 API 在新系统可能被删，新 API 在旧系统不存在，二者互补。
+    else if (!s.createSurface && !s.createSurfaceChecked)
+        miss = "libgui: createSurface / createSurfaceChecked（两代都没有）";
     else if (!s.clientGetDefault) miss = "libgui: SurfaceComposerClient::getDefault()";
     else if (!s.txCtor) miss = "libgui: Transaction::Transaction()";
     else if (!s.txClear) miss = "libgui: Transaction::clear()";
     else if (!s.txShow) miss = "libgui: Transaction::show";
-    else if (!s.txHide) miss = "libgui: Transaction::hide";
+    // txHide 不是启动必需：缺它只是建层时多一帧可见，
+    // 为此让整机跑不起来反而是更严重的失效。
     else if (!s.txSetPosition) miss = "libgui: Transaction::setPosition";
     else if (!s.txSetCrop) miss = "libgui: Transaction::setCrop";
     else if (!s.txSetAlpha) miss = "libgui: Transaction::setAlpha";
-    else if (!s.txApply) miss = "libgui: Transaction::apply";
+    else if (!s.txApply && !s.txApplyLegacy) miss = "libgui: Transaction::apply（新旧签名都没有）";
     if (miss) {
         s.why = fmtStr("缺少必需符号: %s", miss);
         if (why) *why = s.why;
@@ -610,6 +619,7 @@ struct Client {
                                                               &s.pointer, flags, &ph, m.p(), &hint);
                 startupTrace("surface.create rc=%d pointer=%p", rc, s.get());
             } else {
+                if (syms().createSurface == nullptr) break;   // 两代 API 都缺失：交给上层报错
                 s = syms().createSurface(owner.get(), s8.p(), w, h, 1, flags, &ph, m.p(), &hint);
                 startupTrace("surface.create returned=%p", s.get());
             }
@@ -643,7 +653,9 @@ inline void* txNew() {
     return m;
 }
 inline int32_t txApply(void* tx, bool sync) {
-    return syms().txApply(tx, sync, /*oneWay=*/false);
+    if (syms().txApply != nullptr) return syms().txApply(tx, sync, /*oneWay=*/false);
+    if (syms().txApplyLegacy != nullptr) return syms().txApplyLegacy(tx);
+    return -1;   // 两代签名都缺失：调用方按失败处理
 }
 
 // ---------------------------------------------------------------------------
@@ -2091,7 +2103,7 @@ public:
         if (layer_.get() && detail::syms().txHide && detail::syms().txSetAlpha) {
             void* tx = transaction();
             if (tx) {
-                detail::syms().txHide(tx, &layer_);
+                if (detail::syms().txHide != nullptr) detail::syms().txHide(tx, &layer_);
                 detail::syms().txSetAlpha(tx, &layer_, 0.0f);
                 detail::txApply(tx, true);
             }
