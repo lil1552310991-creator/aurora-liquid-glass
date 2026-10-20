@@ -100,6 +100,18 @@ PanelStyle BuildPanelStyle(const PanelTune& tune) {
         probeLensHeight = tune.lensHeightDp;
         probeLensAmount = tune.lensAmountDp;
         probeCorner = tune.cornerTlDp;
+        // 同时写文件：logcat 是环形缓冲，用户跑完后很容易被其它进程刷掉。
+        static FILE* probeFile = std::fopen("/data/local/tmp/aurora_probe.log", "a");
+        if (probeFile != nullptr) {
+            std::fprintf(probeFile,
+                         "TUNE blur=%.3f lensH=%.3f lensA=%.3f cornerTl=%.3f spectral=%.3f\n",
+                         static_cast<double>(tune.blurDp),
+                         static_cast<double>(tune.lensHeightDp),
+                         static_cast<double>(tune.lensAmountDp),
+                         static_cast<double>(tune.cornerTlDp),
+                         static_cast<double>(tune.spectralOn ? tune.dispersion : 0.0f));
+            std::fflush(probeFile);
+        }
         __android_log_print(ANDROID_LOG_INFO, "AuroraParam",
                             "TUNE blur=%.3f lensH=%.3f lensA=%.3f cornerTl=%.3f spectral=%.3f",
                             static_cast<double>(tune.blurDp),

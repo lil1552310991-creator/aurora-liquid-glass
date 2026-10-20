@@ -1019,6 +1019,11 @@ void DrawGlassWorkbench() {
         static int wbProbe = 0;
         if (wbProbe < 3) {
             ++wbProbe;
+            static FILE* wbFile = std::fopen("/data/local/tmp/aurora_probe.log", "a");
+            if (wbFile != nullptr) {
+                std::fprintf(wbFile, "WORKBENCH entered (call %d)\n", wbProbe);
+                std::fflush(wbFile);
+            }
             __android_log_print(ANDROID_LOG_INFO, "AuroraParam",
                                 "WORKBENCH entered (call %d)", wbProbe);
         }
