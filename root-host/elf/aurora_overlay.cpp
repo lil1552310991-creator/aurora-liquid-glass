@@ -1284,7 +1284,22 @@ int main(int argc, char** argv) {
         logf(ANDROID_LOG_ERROR,
              "无法确定 layerStack（DisplayId=%s）。用 --layer-stack N 显式指定。",
              displayId.c_str());
-        reportFailure("无法确定 layerStack（可用 --layer-stack N 指定）", displayId.c_str());
+        // ★ 兼容性排查：把**原始 dumpsys 输出**一起落盘。
+        //   不同厂商（8 Gen 3 / 天玑 上的小米/OPPO/vivo/荣耀…）dumpsys 格式差异很大，
+        //   只写"找不到"无从判断是"格式没匹配"还是"真的没有"。这里保留证据。
+        {
+            std::string dump;
+            dump += "===== 无法确定 layerStack =====\n";
+            dump += "DisplayId   = " + displayId + "\n";
+            dump += "displayName = " + displayName + "\n";
+            dump += "\n----- dumpsys SurfaceFlinger --display-id -----\n";
+            dump += runCapture("dumpsys SurfaceFlinger --display-id 2>&1", 1u << 20);
+            dump += "\n----- dumpsys SurfaceFlinger (head 4000) -----\n";
+            dump += runCapture("dumpsys SurfaceFlinger 2>&1 | head -c 4000", 1u << 20);
+            dump += "\n----- dumpsys display (head 4000) -----\n";
+            dump += runCapture("dumpsys display 2>&1 | head -c 4000", 1u << 20);
+            reportFailure("无法确定 layerStack（可用 --layer-stack N 指定）", dump.c_str());
+        }
         aospglue::shutdown();
         return 6;
     }
@@ -1292,7 +1307,14 @@ int main(int argc, char** argv) {
         : findLogicalDisplayId(displayName, physical);
     if (doCapture && captureBackend != "screencap" && logicalDisplayId < 0) {
         logf(ANDROID_LOG_ERROR, "找不到WMS逻辑displayId，请指定 --display N");
-        reportFailure("找不到 WMS 逻辑 displayId（可用 --display N 指定）", nullptr);
+        {
+            std::string dump;
+            dump += "===== 找不到 WMS 逻辑 displayId =====\n";
+            dump += "displayName = " + displayName + "\n";
+            dump += "\n----- dumpsys display (head 6000) -----\n";
+            dump += runCapture("dumpsys display 2>&1 | head -c 6000", 1u << 20);
+            reportFailure("找不到 WMS 逻辑 displayId（可用 --display N 指定）", dump.c_str());
+        }
         aospglue::shutdown();
         return 6;
     }
@@ -1300,7 +1322,14 @@ int main(int argc, char** argv) {
         runCapture("dumpsys display 2>/dev/null", 4u << 20), logicalDisplayId);
     if (!initialGeometry.valid()) {
         logf(ANDROID_LOG_ERROR, "无法读取目标逻辑显示的当前尺寸/旋转，拒绝用固定竖屏尺寸启动");
-        reportFailure("无法读取目标逻辑显示的尺寸/旋转", nullptr);
+        {
+            std::string dump;
+            dump += "===== 无法读取逻辑显示几何 =====\n";
+            dump += "logicalDisplayId = " + std::to_string(logicalDisplayId) + "\n";
+            dump += "\n----- dumpsys display (head 6000) -----\n";
+            dump += runCapture("dumpsys display 2>&1 | head -c 6000", 1u << 20);
+            reportFailure("无法读取目标逻辑显示的尺寸/旋转", dump.c_str());
+        }
         aospglue::shutdown();
         return 6;
     }
