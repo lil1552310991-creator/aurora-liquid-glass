@@ -83,42 +83,32 @@ lgx::EdgeLight EdgeLightFromSceneTune(const EdgeTune& tune) {
 //   glRunGather 内部对"模糊半径没变"有跳过判断，所以不会因此每帧重建模糊纹理。
 PanelStyle BuildPanelStyle(const PanelTune& tune) {
 #if defined(__ANDROID__)
-    // ★ 诊断：玻璃参数是否真的被 UI 改动。只在值变化时打印，避免刷屏。
-    //   如果拖动主题菜单/调试面板的滑块后这里没有输出，说明控件没有写进 PanelTune；
-    //   如果有输出但画面不动，问题就在渲染端（style 已带新值却没被采纳）。
-    static float probeBlur = -999.0f;
-    static float probeLensHeight = -999.0f;
-    static float probeLensAmount = -999.0f;
-    static float probeCorner = -999.0f;
-    static int probeCalls = 0;
-    // 前 3 次无条件打印：确认这条路径到底有没有被执行（与"值变没变"无关）。
-    const bool probeForce = (probeCalls < 3);
-    if (probeForce) ++probeCalls;
-    if (probeForce || tune.blurDp != probeBlur || tune.lensHeightDp != probeLensHeight ||
-        tune.lensAmountDp != probeLensAmount || tune.cornerTlDp != probeCorner) {
-        probeBlur = tune.blurDp;
-        probeLensHeight = tune.lensHeightDp;
-        probeLensAmount = tune.lensAmountDp;
-        probeCorner = tune.cornerTlDp;
-        // 同时写文件：logcat 是环形缓冲，用户跑完后很容易被其它进程刷掉。
-        static FILE* probeFile = std::fopen("/data/local/tmp/aurora_probe.log", "a");
-        if (probeFile != nullptr) {
-            std::fprintf(probeFile,
-                         "TUNE blur=%.3f lensH=%.3f lensA=%.3f cornerTl=%.3f spectral=%.3f\n",
-                         static_cast<double>(tune.blurDp),
-                         static_cast<double>(tune.lensHeightDp),
-                         static_cast<double>(tune.lensAmountDp),
-                         static_cast<double>(tune.cornerTlDp),
-                         static_cast<double>(tune.spectralOn ? tune.dispersion : 0.0f));
-            std::fflush(probeFile);
+    // 参数追踪探针（默认关闭，AURORA_PARAM_TRACE=1 开启）。
+    // 排查"控件调了没反应"时用它确认值有没有流到样式构建这一层；
+    // 常态开启会刷满 logcat 并拖慢帧率，所以默认不跑。
+    static const bool paramTrace = [] {
+        const char* value = std::getenv("AURORA_PARAM_TRACE");
+        return value != nullptr && value[0] == '1';
+    }();
+    if (paramTrace) {
+        static float lastBlur = -999.0f;
+        static float lastLensH = -999.0f;
+        static float lastLensA = -999.0f;
+        static float lastCorner = -999.0f;
+        if (tune.blurDp != lastBlur || tune.lensHeightDp != lastLensH ||
+            tune.lensAmountDp != lastLensA || tune.cornerTlDp != lastCorner) {
+            lastBlur = tune.blurDp;
+            lastLensH = tune.lensHeightDp;
+            lastLensA = tune.lensAmountDp;
+            lastCorner = tune.cornerTlDp;
+            __android_log_print(ANDROID_LOG_INFO, "AuroraParam",
+                                "TUNE blur=%.3f lensH=%.3f lensA=%.3f cornerTl=%.3f spectral=%.3f",
+                                static_cast<double>(tune.blurDp),
+                                static_cast<double>(tune.lensHeightDp),
+                                static_cast<double>(tune.lensAmountDp),
+                                static_cast<double>(tune.cornerTlDp),
+                                static_cast<double>(tune.spectralOn ? tune.dispersion : 0.0f));
         }
-        __android_log_print(ANDROID_LOG_INFO, "AuroraParam",
-                            "TUNE blur=%.3f lensH=%.3f lensA=%.3f cornerTl=%.3f spectral=%.3f",
-                            static_cast<double>(tune.blurDp),
-                            static_cast<double>(tune.lensHeightDp),
-                            static_cast<double>(tune.lensAmountDp),
-                            static_cast<double>(tune.cornerTlDp),
-                            static_cast<double>(tune.spectralOn ? tune.dispersion : 0.0f));
     }
 #endif
     PanelStyle style;
@@ -165,27 +155,27 @@ PanelStyle BuildPanelStyle(const PanelTune& tune) {
 
 PanelStyle BuildWindowStyle(const WindowTune& tune) {
 #if defined(__ANDROID__)
-    // ★ 独立探针："整窗口"是用户在主题窗口里要调的对象，必须单独可见。
+    // 整窗口参数追踪（同一开关 AURORA_PARAM_TRACE）。
     {
-        static float wCorner = -999.0f;
-        static float wBlur = -999.0f;
-        static float wLensH = -999.0f;
-        static int wCalls = 0;
-        const bool force = (wCalls < 3);
-        if (force) ++wCalls;
-        if (force || tune.cornerDp != wCorner || tune.blurDp != wBlur ||
-            tune.lensHeightDp != wLensH) {
-            wCorner = tune.cornerDp;
-            wBlur = tune.blurDp;
-            wLensH = tune.lensHeightDp;
-            static FILE* wFile = std::fopen("/data/local/tmp/aurora_probe.log", "a");
-            if (wFile != nullptr) {
-                std::fprintf(wFile, "WINDOW corner=%.3f blur=%.3f lensH=%.3f glass=%d\n",
-                             static_cast<double>(tune.cornerDp),
-                             static_cast<double>(tune.blurDp),
-                             static_cast<double>(tune.lensHeightDp),
-                             tune.glassEnabled ? 1 : 0);
-                std::fflush(wFile);
+        static const bool windowTrace = [] {
+            const char* value = std::getenv("AURORA_PARAM_TRACE");
+            return value != nullptr && value[0] == '1';
+        }();
+        if (windowTrace) {
+            static float lastCorner = -999.0f;
+            static float lastBlur = -999.0f;
+            static float lastLensH = -999.0f;
+            if (tune.cornerDp != lastCorner || tune.blurDp != lastBlur ||
+                tune.lensHeightDp != lastLensH) {
+                lastCorner = tune.cornerDp;
+                lastBlur = tune.blurDp;
+                lastLensH = tune.lensHeightDp;
+                __android_log_print(ANDROID_LOG_INFO, "AuroraParam",
+                                    "WINDOW corner=%.3f blur=%.3f lensH=%.3f glass=%d",
+                                    static_cast<double>(tune.cornerDp),
+                                    static_cast<double>(tune.blurDp),
+                                    static_cast<double>(tune.lensHeightDp),
+                                    tune.glassEnabled ? 1 : 0);
             }
         }
     }

@@ -1268,7 +1268,8 @@ void BindMenuTarget(Registry& registry, GlassScene& scene) {
                   "编译期常量，PopMenu 没有对应字段（本次未改动该文件）");
 }
 
-void BindDialogTarget(Registry& registry, GlassScene& scene) {
+// 按用户要求不注册进调试器（弹窗没有专属分页），但函数保留以便随时恢复。
+[[maybe_unused]] void BindDialogTarget(Registry& registry, GlassScene& scene) {
     TargetDesc desc;
     desc.id = "secondary_window.dialog";
     desc.name = "液态弹窗";

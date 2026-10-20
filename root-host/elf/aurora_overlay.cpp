@@ -534,6 +534,8 @@ std::string runCapture(const char* cmd, size_t maxBytes = 4096) {
 }
 
 /** 从 `dumpsys SurfaceFlinger --display-id` 的输出里挑一台非物理屏的 DisplayId。 */
+// 保留：早期内部调用点用过；现在 --virtual 直接调 aurora::display_pick 里的版本。
+[[maybe_unused]]
 std::string pickVirtualDisplayId(std::string* allDisplays) {
     const std::string dump = runCapture("dumpsys SurfaceFlinger --display-id 2>/dev/null");
     if (allDisplays != nullptr) *allDisplays = dump;
@@ -1059,7 +1061,8 @@ int main(int argc, char** argv) {
     bool cpuErase = false;
     bool doDump = false;
     bool verbose = false;    // --verbose/-v：打开全部输出（默认静默，见 g_quiet）
-bool yesPhysical = false;
+bool yesPhysical = false;    // 兼容旧命令行；物理屏闸门已删除，此标记不再影响行为
+    (void)yesPhysical;
     bool wantVirtual = false;    // --virtual：明确要求虚拟屏（自动化测试用）
     // --record [路径] / --record-seconds N：启动即开录（等价于点主题窗口里的「开始录屏」）。
     // 录制由系统 screenrecord 承担，理由见 ScreenRecorder.h 顶部（自带录屏录不到悬浮窗）。

@@ -136,6 +136,7 @@ inline ControlCenterLayout ComputeControlCenterLayout(float rawProgress, float s
                                                       float stageTop, float stageWidth,
                                                       float stageHeight, float panelWidth,
                                                       float panelHeight, float topPaddingPx) {
+    (void)stageHeight;   // 目前布局算法不依赖舞台高度，参数保留以便后续扩展
     ControlCenterLayout out;
     const ControlCenterVisual v =
         ComputeControlCenterVisual(rawProgress, safeProgress, pxPerDp);

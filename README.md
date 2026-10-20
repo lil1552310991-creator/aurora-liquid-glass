@@ -224,19 +224,24 @@ cmake --build build/elf-arm64 --target aurora_overlay -j 8
 adb push build/elf-arm64/bin/aurora_overlay /data/local/tmp/
 adb shell su -c "chmod 755 /data/local/tmp/aurora_overlay"
 
-# 3. 跑在物理主屏上（display 0；--yes-physical 只是安全确认，不会创建虚拟屏）
-adb shell su -c "cd /data/local/tmp && ./aurora_overlay --display 0 --yes-physical --max-seconds 3600"
+# 3. 直接跑（默认就是物理主屏，不需要任何参数）
+adb shell su -c "cd /data/local/tmp && ./aurora_overlay --max-seconds 3600"
 ```
 
-> **关于显示选择**：`--display 0 --yes-physical` 表示"画在物理主屏上"，
-> 这两个参数都**不会**创建虚拟显示。若要让它在**虚拟屏**上跑（无头验证、不占用自己的屏幕），
-> 改用 `--display-id <id>`，先自己查：
+> **关于显示选择**：本程序是个**叠加在系统显示之上的图层**，正常用法就是物理屏，
+> **默认（不带参数）即为物理屏**，不会创建任何虚拟显示。
 >
-> ```sh
-> adb shell dumpsys SurfaceFlinger --display-id     # 取 "Virtual display" 那行的 id
-> ```
+> | 参数 | 含义 |
+> |---|---|
+> | 不带参数 | 物理屏，直接可用 |
+> | `--display N` | 按逻辑显示号 N 映射；解析不出 N 时退回物理屏 |
+> | `--display-id <id>` | 直接指定 SurfaceFlinger 的 DisplayId（验证脚本用） |
+> | `--virtual` | 明确要求虚拟屏（自动化测试用；本机没有则退回物理屏） |
 >
-> ★ 这个 id **每次重建虚拟屏都会变**，所以工具本身从不硬编码它、也不按它匹配。
+> `--yes-physical` 仍然被接受，但**不再起任何作用** —— 早期它是个"确认要点亮物理屏"的闸门，
+> 而对一个唯一目的就是在屏幕上画东西的工具来说，拒绝在自己的屏幕上运行是错的默认值。
+>
+> ★ SF DisplayId **每台机器都不同**，连同型号不同机都可能变，所以工具从不硬编码它。
 
 在**交互式终端**里启动会先出现一个渲染后端菜单（OpenGL ES / Vulkan，10 秒不选走默认）；
 非交互启动（管道、后台）不会等待，直接使用默认值。也可以直接指定：

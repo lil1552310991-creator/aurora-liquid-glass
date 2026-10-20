@@ -460,8 +460,13 @@ bool Registry::Set(const std::string& target, const std::string& param, const Pa
   //     有   ⇒ 问题在下游（Commit 或渲染读取）。
 #if defined(__ANDROID__)
   {
-    static int setLogBudget = 40;
-    if (setLogBudget > 0) {
+    // 同一开关：AURORA_PARAM_TRACE=1 才记录（默认关，避免刷满 logcat）。
+    static const bool setTrace = [] {
+      const char* value = std::getenv("AURORA_PARAM_TRACE");
+      return value != nullptr && value[0] == '1';
+    }();
+    static int setLogBudget = 200;
+    if (setTrace && setLogBudget > 0) {
       --setLogBudget;
       char valueText[64] = {};
       switch (slot->desc.kind) {

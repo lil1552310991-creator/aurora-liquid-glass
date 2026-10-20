@@ -449,7 +449,10 @@ bool DrawParamRow(const std::string& targetId, Target& target, std::size_t param
           registry.SetF(targetId, slot.desc.id, edited, ChangeOrigin::Ui);
           changed = true;
 #if defined(__ANDROID__)
-          {
+          if ([] {
+                const char* value = std::getenv("AURORA_PARAM_TRACE");
+                return value != nullptr && value[0] == '1';
+              }()) {
             static FILE* uiFile = std::fopen("/data/local/tmp/aurora_probe.log", "a");
             if (uiFile != nullptr) {
               std::fprintf(uiFile, "UI-DRAG %s / %s = %.4f\n", targetId.c_str(),
@@ -1054,8 +1057,12 @@ WorkbenchStats CurrentWorkbenchStats() {
 void DrawGlassWorkbench() {
 #if defined(__ANDROID__)
     {
+        static const bool wbTrace = [] {
+            const char* value = std::getenv("AURORA_PARAM_TRACE");
+            return value != nullptr && value[0] == '1';
+        }();
         static int wbProbe = 0;
-        if (wbProbe < 3) {
+        if (wbTrace && wbProbe < 3) {
             ++wbProbe;
             static FILE* wbFile = std::fopen("/data/local/tmp/aurora_probe.log", "a");
             if (wbFile != nullptr) {
