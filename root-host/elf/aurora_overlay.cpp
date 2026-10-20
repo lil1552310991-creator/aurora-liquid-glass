@@ -579,7 +579,8 @@ int parseInt(const char* s, int fallback) {
  * displayName 为空表示物理屏（其 displayName=""），此时直接给 0。
  */
 int findLayerStack(const std::string& displayId, const std::string& displayName) {
-    if (displayId.empty()) return -1;
+    // ★ displayId 解析失败**不等于**没有可用显示：各厂商 --display-id 的格式不统一，
+    //   原来直接 return -1 ⇒ 主流程判死退出；现在走后面的兜底链（物理屏 layerStack 恒 0）。
 
     // ---- 1) 首选：SurfaceFlinger 的 DisplayId → layerFilter={layerStack=N} ----
     {
@@ -617,9 +618,15 @@ int findLayerStack(const std::string& displayId, const std::string& displayName)
     }
 
     // ---- 3) 物理屏没有 displayName，layerStack 恒为 0 ----
-    if (displayName.empty()) return 0;
-
-    return -1;
+    // ★ 无条件兜底：本程序画的是兄弟图层，落在一台显示上的默认层栈就是 0。
+    //   某些 ROM 既解析不出 layerStack= 也没有 displayName，放宽前会直接退出；
+    //   放宽后在 0 上至少能跑（显示可能不对，但比完全起不来好），且日志会标注。
+    {
+        logf(ANDROID_LOG_WARN, "layerStack 未解析出来（DisplayId=%s displayName=%s），兜底用 0",
+             displayId.empty() ? "空" : displayId.c_str(),
+             displayName.empty() ? "空" : displayName.c_str());
+        return 0;
+    }
 }
 
 // WMS uses a logical display ID; SurfaceFlinger uses a different uint64 ID.
@@ -1381,8 +1388,23 @@ int main(int argc, char** argv) {
         aospglue::shutdown();
         return 6;
     }
-    const auto initialGeometry = aurora::ParseDisplayGeometry(
+    auto initialGeometry = aurora::ParseDisplayGeometry(
         runCapture("dumpsys display 2>/dev/null", 4u << 20), logicalDisplayId);
+    // ★ 兜底：dumpsys 的 DisplayInfo 格式各厂商不同，严格解析失败时退回 wm size。
+    //   wm size 是稳定接口（`wm size` 输出 "Physical size: WxH" / "Override size: WxH"），
+    //   虽然不带旋转信息，但比"读不到尺寸就拒绝启动"好得多 —— 拿不到旋转时按 0 处理，
+    //   后续每帧还有 geometry 刷新逻辑会纠正。
+    if (!initialGeometry.valid()) {
+        const std::string wmSize = runCapture("wm size 2>/dev/null", 1u << 16);
+        int sw = 0;
+        int sh = 0;
+        if (aurora::ParseWmSize(wmSize, &sw, &sh)) {
+            initialGeometry.width = sw;
+            initialGeometry.height = sh;
+            initialGeometry.rotation = 0;
+            logf(ANDROID_LOG_WARN, "DisplayInfo 解析失败，改用 wm size 兜底：%dx%d", sw, sh);
+        }
+    }
     if (!initialGeometry.valid()) {
         logf(ANDROID_LOG_ERROR, "无法读取目标逻辑显示的当前尺寸/旋转，拒绝用固定竖屏尺寸启动");
         {

@@ -25,5 +25,30 @@ int main() {
     assert(reversed != g);
     reversed = g; ++reversed.generation;
     assert(reversed != g);
-    std::puts("DisplayGeometryTest: 12 checks passed");
+    // ── ParseWmSize 兜底：dumpsys 格式对不上时用它取尺寸 ───────────────────
+    // 这是"某些厂商 ROM 的 DisplayInfo 排版不同 ⇒ 读不到尺寸 ⇒ 拒绝启动"的补丁，
+    // 所以每条边界都要钉住：Override 优先、单行/多行都认、坏数据必须拒绝。
+    {
+        using aurora::ParseWmSize;
+        int w = 0, h = 0;
+        // 有 Override 时用它（Override 才是当前生效的尺寸）
+        assert(ParseWmSize("Physical size: 1440x3168\nOverride size: 1080x2376\n", &w, &h));
+        assert(w == 1080 && h == 2376);
+        // 只有 Physical
+        assert(ParseWmSize("Physical size: 1440x3168\n", &w, &h) && w == 1440 && h == 3168);
+        // 字段顺序颠倒也要认
+        assert(ParseWmSize("Override size: 720x1600\nPhysical size: 1440x3168\n", &w, &h));
+        assert(w == 720 && h == 1600);
+        // 大写 X 与多余空格
+        assert(ParseWmSize("Physical size:  1080 X 2376", &w, &h) && w == 1080 && h == 2376);
+        // 垃圾/缺失必须拒绝
+        assert(!ParseWmSize("", &w, &h));
+        assert(!ParseWmSize("Physical size: unknown", &w, &h));
+        assert(!ParseWmSize("Physical size: 0x2376", &w, &h));
+        assert(!ParseWmSize("Physical size: 1080x", &w, &h));
+        assert(!ParseWmSize("Physical size: 99999x2376", &w, &h));
+        // 空指针不能崩
+        assert(!ParseWmSize("Physical size: 1080x2376", nullptr, &h));
+    }
+    std::puts("DisplayGeometryTest: 12 + 12 checks passed");
 }

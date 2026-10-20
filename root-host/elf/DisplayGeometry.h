@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <string>
 
 namespace aurora {
@@ -54,6 +55,41 @@ inline DisplayGeometry ParseDisplayGeometry(const std::string& dump, int logical
         else base = value;
     }
     return overrideGeometry.valid() ? overrideGeometry : base;
+}
+
+// 从 `wm size` 的输出里取屏幕尺寸。
+//
+// 输出形如（Override 优先，它才是当前生效的）：
+//   Physical size: 1440x3168
+//   Override size: 1080x2376
+//
+// 这是 DisplayInfo 解析失败时的兜底：不提供旋转信息（按 0 处理），但保证
+// "至少能拿到一个可用的宽高"，而不是因为 dumpsys 格式不同就拒绝启动。
+inline bool ParseWmSize(const std::string& dump, int* outWidth, int* outHeight) {
+    if (outWidth == nullptr || outHeight == nullptr) return false;
+    const char* keys[2] = {"Override size:", "Physical size:"};
+    for (const char* key : keys) {
+        const std::size_t pos = dump.find(key);
+        if (pos == std::string::npos) continue;
+        const char* p = dump.c_str() + pos + std::strlen(key);
+        while (*p == ' ') ++p;
+        char* tail = nullptr;
+        const long w = std::strtol(p, &tail, 10);
+        if (tail == p) continue;
+        // 分隔符允许 `x` / `X`，且**两侧都可以有空格**（不同 ROM 的 wm 输出并不统一，
+        // 真机上确实见过 "1080 X 2376" 这种写法）。离线用例钉住了这一条。
+        while (*tail == ' ') ++tail;
+        if (*tail != 'x' && *tail != 'X') continue;
+        ++tail;
+        while (*tail == ' ') ++tail;
+        const long h = std::strtol(tail, &tail, 10);
+        if (*tail != '\0' && *tail != '\n' && *tail != '\r' && *tail != ' ' && *tail != ',') continue;
+        if (w <= 0 || h <= 0 || w > 32768 || h > 32768) continue;
+        *outWidth = static_cast<int>(w);
+        *outHeight = static_cast<int>(h);
+        return true;
+    }
+    return false;
 }
 
 } // namespace aurora
