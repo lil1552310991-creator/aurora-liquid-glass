@@ -1014,6 +1014,16 @@ WorkbenchStats CurrentWorkbenchStats() {
 }
 
 void DrawGlassWorkbench() {
+#if defined(__ANDROID__)
+    {
+        static int wbProbe = 0;
+        if (wbProbe < 3) {
+            ++wbProbe;
+            __android_log_print(ANDROID_LOG_INFO, "AuroraParam",
+                                "WORKBENCH entered (call %d)", wbProbe);
+        }
+    }
+#endif
   BeginGlassWorkbench();
   Workbench& workbench = WB();
   if (!workbench.ready || workbench.registry == nullptr) {

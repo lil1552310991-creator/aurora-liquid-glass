@@ -90,7 +90,11 @@ PanelStyle BuildPanelStyle(const PanelTune& tune) {
     static float probeLensHeight = -999.0f;
     static float probeLensAmount = -999.0f;
     static float probeCorner = -999.0f;
-    if (tune.blurDp != probeBlur || tune.lensHeightDp != probeLensHeight ||
+    static int probeCalls = 0;
+    // 前 3 次无条件打印：确认这条路径到底有没有被执行（与"值变没变"无关）。
+    const bool probeForce = (probeCalls < 3);
+    if (probeForce) ++probeCalls;
+    if (probeForce || tune.blurDp != probeBlur || tune.lensHeightDp != probeLensHeight ||
         tune.lensAmountDp != probeLensAmount || tune.cornerTlDp != probeCorner) {
         probeBlur = tune.blurDp;
         probeLensHeight = tune.lensHeightDp;
