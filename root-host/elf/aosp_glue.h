@@ -313,6 +313,49 @@ inline GuiSyms& syms() {
     return s;
 }
 
+// 把关键符号的解析结果排成表（--diagnose 用）。
+// 目的：某台机器跑不起来时，先看是哪一类符号整组缺失。
+inline std::string symbolReport() {
+    std::string out;
+    char line[320];
+    auto row = [&](const char* group, const char* name, const void* p) {
+        std::snprintf(line, sizeof line, "  %-10s %-44s %s\n", group, name,
+                      p != nullptr ? "OK" : "**缺失**");
+        out += line;
+    };
+    GuiSyms& g = syms();
+    row("核心", "String8::String8", (const void*)g.string8Ctor);
+    row("核心", "LayerMetadata::LayerMetadata", (const void*)g.metaCtor);
+    row("核心", "SurfaceComposerClient::getDefault", (const void*)g.clientGetDefault);
+    row("核心", "SurfaceComposerClient::initCheck", (const void*)g.clientInitCheck);
+    row("建层", "createSurface", (const void*)g.createSurface);
+    row("建层", "createSurfaceChecked", (const void*)g.createSurfaceChecked);
+    row("建层", "SurfaceControl::getHandle", (const void*)g.getHandle);
+    row("建层", "SurfaceControl::validate", (const void*)g.validate);
+    row("建层", "SurfaceControl::getLayerId", (const void*)g.getLayerId);
+    row("建层", "SurfaceControl::getSurface", (const void*)g.getSurface);
+    row("事务", "Transaction::Transaction", (const void*)g.txCtor);
+    row("事务", "Transaction::clear", (const void*)g.txClear);
+    row("事务", "Transaction::show", (const void*)g.txShow);
+    row("事务", "Transaction::hide", (const void*)g.txHide);
+    row("事务", "Transaction::setPosition", (const void*)g.txSetPosition);
+    row("事务", "Transaction::setCrop", (const void*)g.txSetCrop);
+    row("事务", "Transaction::setLayer", (const void*)g.txSetLayer);
+    row("事务", "Transaction::setAlpha", (const void*)g.txSetAlpha);
+    row("事务", "Transaction::apply", (const void*)g.txApply);
+    row("输入", "Transaction::setInputWindowInfo", (const void*)g.txSetInputWindowInfo);
+    row("输入", "ipc::threadStateSelf", (const void*)g.ipcThreadStateSelf);
+    row("输入", "ipc::transact", (const void*)g.ipcTransact);
+    row("帧率", "Transaction::setFrameRate", (const void*)g.txSetFrameRate);
+    row("帧率", "Transaction::setFrameRateSelectionPriority",
+        (const void*)g.txSetFrameRateSelectionPriority);
+    row("帧率", "Transaction::setTrustedOverlay", (const void*)g.txSetTrustedOverlay);
+    std::snprintf(line, sizeof line, "  %-10s %-44s %s\n", "汇总",
+                  "输入链路可用（缺则降级为纯显示）", g.inputChainReady ? "是" : "**否**");
+    out += line;
+    return out;
+}
+
 // 屏幕当前**实际**刷新率（Hz）。读不到返回 0，调用方按"未知"处理。
 //
 // ★ 刻意用外部命令读文本，而不是 libgui 的 getActiveDisplayMode：

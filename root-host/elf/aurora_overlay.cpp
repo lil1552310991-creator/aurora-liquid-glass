@@ -1034,7 +1034,8 @@ int main(int argc, char** argv) {
     int displayIdArg = -1;
     int layerStackArg = -1;
     std::string displayIdExplicit;   // --display-id <uint64>：直接给 SF 的 DisplayId
-    int maxSeconds = 0;              // 0 = 不自动退出
+    int maxSeconds = 0;
+    bool diagnoseOnly = false;   // --diagnose：只做兼容性自检，不建层、不接管输入
     int captureFps = 120;
     int renderFps = 120;
     bool renderFpsExplicit = false;   // 用户是否显式写了 --render-fps（决定能否跟随屏幕）
@@ -1095,6 +1096,7 @@ int main(int argc, char** argv) {
         }
         else if (!std::strcmp(a, "--move-at") && v) { moveDemoAtSeconds = parseInt(v, 8); ++i; }
         else if (!std::strcmp(a, "--dump")) { doDump = true; }
+    else if (!std::strcmp(a, "--diagnose")) { diagnoseOnly = true; }
         else if (!std::strcmp(a, "--verbose") || !std::strcmp(a, "-v")) { verbose = true; }
         else if (!std::strcmp(a, "--record")) {
             recordWanted = true;
@@ -1176,6 +1178,65 @@ int main(int argc, char** argv) {
     // `--backend vulkan`（那是性能对照用的，不是日常形态）。
     if (backendChoice < 0) backendChoice = 0;
     logf(ANDROID_LOG_INFO, "渲染后端: %s", backendChoice == 1 ? "Vulkan" : "OpenGL ES 3.x");
+
+    // ---- 兼容性自检（--diagnose）----
+    //
+    // ★ 必须在**所有显示选择/建层之前**短路。这些步骤在没虚拟屏的机器上必然失败，
+    //   而那恰恰是最需要自检的场景（"跑不起来，先看环境"）。
+    //   只收集事实，不建图层、不接管输入、不改任何显示状态。
+    if (diagnoseOnly) {
+        // 先解析符号：自检的价值就在"这台机器的 libgui 到底导出哪些符号"，
+        // 不 init 的话整张表全是"缺失"，毫无意义。
+        {
+            std::string initWhy;
+            aospglue::init(&initWhy);
+        }
+        std::string report;
+        char dline[512];
+        auto addLine = [&](const char* fmt, ...) {
+            va_list ap;
+            va_start(ap, fmt);
+            std::vsnprintf(dline, sizeof dline, fmt, ap);
+            va_end(ap);
+            report += dline;
+            report += '\n';
+        };
+
+        report += "===== Aurora 兼容性自检 =====\n";
+        addLine("时间          %s", runCapture("date '+%Y-%m-%d %H:%M:%S' 2>&1 | tr -d '\\n'", 1u << 12).c_str());
+        addLine("SoC           %s", runCapture("getprop ro.soc.model 2>&1 | tr -d '\\n'", 1u << 12).c_str());
+        addLine("平台          %s", runCapture("getprop ro.board.platform 2>&1 | tr -d '\\n'", 1u << 12).c_str());
+        addLine("型号          %s", runCapture("getprop ro.product.model 2>&1 | tr -d '\\n'", 1u << 12).c_str());
+        addLine("厂商          %s", runCapture("getprop ro.product.manufacturer 2>&1 | tr -d '\\n'", 1u << 12).c_str());
+        addLine("Android       %s / API %s",
+                runCapture("getprop ro.build.version.release 2>&1 | tr -d '\\n'", 1u << 12).c_str(),
+                runCapture("getprop ro.build.version.sdk 2>&1 | tr -d '\\n'", 1u << 12).c_str());
+        addLine("GL            %s", runCapture("getprop ro.hardware.egl 2>&1 | tr -d '\\n'", 1u << 12).c_str());
+        addLine("SELinux       %s", runCapture("getenforce 2>&1 | tr -d '\\n'", 1u << 12).c_str());
+        addLine("屏幕          %s", runCapture("wm size 2>&1 | tr -d '\\n'", 1u << 12).c_str());
+        addLine("刷新率        %s",
+                runCapture("dumpsys SurfaceFlinger 2>/dev/null | grep -m1 activeMode | sed 's/^ *//'", 1u << 20).c_str());
+        report += "\n----- libgui 符号解析 -----\n";
+        report += aospglue::detail::symbolReport();
+        report += "\n----- dumpsys SurfaceFlinger --display-id -----\n";
+        report += runCapture("dumpsys SurfaceFlinger --display-id 2>&1", 1u << 20);
+        report += "\n----- dumpsys display (head 6000) -----\n";
+        report += runCapture("dumpsys display 2>&1 | head -c 6000", 1u << 20);
+
+        const char* outPath = std::getenv("AURORA_DIAGNOSE_LOG");
+        if (outPath == nullptr || outPath[0] == '\0') outPath = "/data/local/tmp/aurora_diagnose.log";
+        if (FILE* f = std::fopen(outPath, "w")) {
+            std::fwrite(report.data(), 1, report.size(), f);
+            std::fclose(f);
+            logf(ANDROID_LOG_INFO, "自检报告已写入 %s（%zu 字节）", outPath, report.size());
+        } else {
+            logf(ANDROID_LOG_ERROR, "自检报告写入失败: %s", outPath);
+        }
+        std::fputs(report.c_str(), stdout);
+        std::fflush(stdout);
+        aospglue::shutdown();
+        return 0;
+    }
 
     // ---- 解析目标显示 ----
     std::string displayList;
@@ -1269,6 +1330,8 @@ int main(int argc, char** argv) {
         reportFailure("平台库初始化失败", why.c_str());
         return 5;
     }
+
+
 
     // 图层尺寸：整屏。因为照搬的界面里两个 ImGui 窗口都可以被用户拖动，
     // 图层必须够大。整屏图层本身不危险 —— 危险的是 touchOcclusionMode 保持默认，
