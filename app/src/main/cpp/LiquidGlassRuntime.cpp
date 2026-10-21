@@ -1,6 +1,7 @@
 #include "LiquidGlassRuntime.h"
 #include "glass/DebugHighlight.h"
 #include "UiLayout.h"
+#include "PanelEfficiencyStats.h"
 
 #include "ScreenRecorder.h"   // 录屏开关（内置 screenrecord，见该头文件顶部的理由）
 #include "GlassWorkbench.h"   // ★ Liquid Glass Inspector 调试工作台
@@ -481,6 +482,45 @@ void UpdateLiquidGlassDiagnostics(const HostCapabilities& host,
     info.textInputRequested = textInputRequested;
     info.frameCount = frameStats.frameCount;
     info.fps = frameStats.smoothedFps;
+    // ★ 面板统计（每秒一行）：直接回答"到底画了多少块玻璃、模糊了多少像素"。
+    //   没有这组数字，性能讨论就只能靠猜。默认写 logcat，不画到界面上。
+    {
+        static const bool statsOn = [] {
+            const char* v = std::getenv("AURORA_PANEL_STATS");
+            return v != nullptr && v[0] == '1';
+        }();
+        if (statsOn) {
+            static std::uint64_t lastPaints = 0;
+            static std::uint64_t lastGatherRuns = 0;
+            static std::uint64_t lastGatheredPx = 0;
+            static std::uint64_t lastCapturedPx = 0;
+            static std::uint64_t lastCulledPaints = 0;
+            static double lastStamp = 0.0;
+            const double now = ImGui::GetTime();
+            if (now - lastStamp >= 1.0) {
+                const auto snap = aurora::panel_efficiency::snapshot();
+                const double dt = (lastStamp > 0.0) ? (now - lastStamp) : 1.0;
+                const double paints = static_cast<double>(snap.panelPaints - lastPaints) / dt;
+                const double gathers = static_cast<double>(snap.gatherRuns - lastGatherRuns) / dt;
+                const double gatheredMpx =
+                    static_cast<double>(snap.gatheredPixels - lastGatheredPx) / dt / 1.0e6;
+                const double capturedMpx =
+                    static_cast<double>(snap.capturedPixels - lastCapturedPx) / dt / 1.0e6;
+                const double culled = static_cast<double>(snap.culledPaints - lastCulledPaints) / dt;
+                __android_log_print(
+                    ANDROID_LOG_INFO, kLogTag,
+                    "PANEL fps=%.0f paints/s=%.1f gather/s=%.1f gathered=%.2fMpx captured=%.2fMpx culled=%.1f",
+                    static_cast<double>(frameStats.smoothedFps), paints, gathers, gatheredMpx,
+                    capturedMpx, culled);
+                lastPaints = snap.panelPaints;
+                lastGatherRuns = snap.gatherRuns;
+                lastGatheredPx = snap.gatheredPixels;
+                lastCapturedPx = snap.capturedPixels;
+                lastCulledPaints = snap.culledPaints;
+                lastStamp = now;
+            }
+        }
+    }
     info.worstFrameMilliseconds = frameStats.worstFrameMilliseconds;
     info.safeLeft = host.safeRegion.left;
     info.safeTop = host.safeRegion.top;
