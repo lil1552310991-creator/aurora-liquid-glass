@@ -1675,6 +1675,9 @@ bool yesPhysical = false;    // 兼容旧命令行；物理屏闸门已删除，
     // eSkipScreenshot removes this overlay from the capture before any shader runs.
     std::thread captureThread;
     std::atomic<long long> captureFrames{0}, captureSkippedLowMem{0}, captureErrors{0}, captureErased{0};
+// 连续采集失败次数：偶发失败不退出（切游戏/分辨率变化都会让它抖一下），
+// 连续 ~2 秒都失败才认为这台设备确实采不到背景。
+std::atomic<int> captureConsecutiveFailures{0};
     std::atomic<long long> captureTotalUs{0};
     std::mutex captureErrorMutex;
     std::string captureError;
@@ -1757,6 +1760,7 @@ bool yesPhysical = false;    // 兼容旧命令行；物理屏闸门已删除，
                         handoffUs += std::chrono::duration_cast<std::chrono::microseconds>(handedOff - captured).count();
                         if (captureBackend != "screencap") readbackUs += timing.readbackUs;
                         captureFrames.fetch_add(1);
+                        captureConsecutiveFailures.store(0);
                         captureErased.store(captureBackend == "screencap" ? legacy.erasedFrameCount() : realtime->erasedFrameCount());
                         if (++timedFrames >= 60) {
                             logf(ANDROID_LOG_INFO, "[计时] %s %d帧: 采集+传输=%lldus CPU读回=%lldus 交接=%lldus",
@@ -1766,13 +1770,30 @@ bool yesPhysical = false;    // 兼容旧命令行；物理屏闸门已删除，
                             timedFrames = 0;
                         }
                     } else {
+                        // ★ 采集失败**不再退出**。
+                        //
+                        //   背景采集是间歇性的：切游戏、分辨率变化、系统界面重建都可能让
+                        //   某一帧失败。原来这里直接 store(12) + break，于是一次偶发失败
+                        //   就让整个覆盖层消失 —— 用户看到的就是"跑着跑着自己关了"。
+                        //
+                        //   现在：连续失败才退出（比如设备根本不支持镜像，那是真没法跑）。
+                        //   零星失败只是这一帧玻璃用上一帧的背景，视觉上几乎察觉不到。
                         if (buffer) AHardwareBuffer_release(buffer);
                         captureErrors.fetch_add(1);
                         { std::lock_guard lock(captureErrorMutex); captureError = why; }
-                        logf(ANDROID_LOG_ERROR, "背景采集失败: %s", why.c_str());
-                        g_exitStatus.store(12);
-                        g_running.store(false);
-                        break; // bounded failure; no failing process-spawn loop
+                        captureConsecutiveFailures.fetch_add(1);
+                        const int consecutive = captureConsecutiveFailures.load();
+                        if (consecutive <= 3 || consecutive % 120 == 0) {
+                            logf(ANDROID_LOG_WARN, "背景采集失败（连续 %d 次）: %s", consecutive,
+                                 why.c_str());
+                        }
+                        // 连续 240 次（约 2 秒 @120fps）都失败，说明这台设备确实采不到背景。
+                        if (consecutive >= 240) {
+                            logf(ANDROID_LOG_ERROR, "背景采集连续失败 %d 次，无法继续", consecutive);
+                            g_exitStatus.store(12);
+                            g_running.store(false);
+                            break;
+                        }
                     }
                 }
                 // Keep an absolute clock. Relative sleeps drift at 120/165 Hz;
@@ -1855,13 +1876,19 @@ bool yesPhysical = false;    // 兼容旧命令行；物理屏闸门已删除，
         if (nextGeometry != appliedGeometry) {
             layerW = nextGeometry.width;
             layerH = nextGeometry.height;
-            if (!overlay.resize(layerW, layerH)) {
-                logf(ANDROID_LOG_ERROR, "显示旋转更新失败: %s", overlay.error());
-                reportFailure("显示旋转更新失败", overlay.error());
-                g_exitStatus.store(13);
-                g_running.store(false);
-                break;
-            }
+            // ★★ resize 失败**不再退出**。
+            //
+            //   这条路径原来直接 store(13) + break，而它最常见的触发条件是
+            //   "旧 Android 没有 SurfaceControl::updateDefaultBufferSize 这个符号"
+            //   —— 那是**可选**符号（见 aosp_glue.h 的 R(..., false)）。于是转一次屏
+            //   整个覆盖层就消失，用户看到的是"跑着跑着自己关了"。
+            //
+            //   现在降级：保留旧图层尺寸继续跑。画面可能被拉伸（因为 framebuffer
+            //   还是旧尺寸），但**总比程序消失好**，而且日志会明确说明原因。
+            //   appliedGeometry 仍然更新，避免每帧重试刷日志。
+            logf(ANDROID_LOG_WARN,
+                 "显示旋转后 resize 失败（%s），保持 %dx%d 继续运行", overlay.error(),
+                 layerW, layerH);
             appliedGeometry = nextGeometry;
             lastApplied.clear();
             lastShapes.clear();
@@ -1882,15 +1909,15 @@ bool yesPhysical = false;    // 兼容旧命令行；物理屏闸门已删除，
         if (shapes.size() != lastShapes.size() || !std::equal(shapes.begin(), shapes.end(), lastShapes.begin(), sameShape)) {
             const auto exactRegion = aurora::BuildOverlayTouchRegion(shapes, layerW, layerH);
             if (exactRegion != lastApplied) {
-            if (!overlay.updateTouchableRegionRects(exactRegion)) {
-                logf(ANDROID_LOG_ERROR, "精确触摸区域提交失败，停止覆盖层: %s", overlay.error());
-                reportFailure("精确触摸区域提交失败", overlay.error());
-                g_exitStatus.store(13);
-                g_running.store(false);
-                break;
-            }
-            lastApplied = exactRegion;
-            ++regionUpdates;
+                if (!overlay.updateTouchableRegionRects(exactRegion)) {
+                    // ★ 提交失败**不再退出**：继续画，只是这一轮触摸拦截区没更新
+                    //   （可能点到窗口外）。比整个覆盖层消失轻得多。
+                    logf(ANDROID_LOG_WARN, "触摸区域提交失败（%s），本轮跳过，继续运行",
+                         overlay.error());
+                } else {
+                    lastApplied = exactRegion;
+                    ++regionUpdates;
+                }
             }
             lastShapes = shapes;
         }
