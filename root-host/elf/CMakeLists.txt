@@ -53,8 +53,8 @@ target_link_libraries(aurora_demo PRIVATE EGL GLESv3 log dl)
 # 输入法自检工具（ime_probe）已删除。
 #
 #   它专职做「释放内嵌 APK + 引导 app_process + 等 READY」的分步定位，
-#   而那条链路整体被移除了（项目里不允许任何 APK）。输入现在由
-#   app/src/main/cpp/SoftKeyboard.cpp 的自绘键盘承担，无需外部进程。
+#   而那条链路整体被移除了（项目里不允许任何 APK）。输入改由
+#   app/src/main/cpp/Clipboard.cpp 的自绘粘贴逻辑承担。
 # -----------------------------------------------------------------------------
 # -----------------------------------------------------------------------------
 # 触摸盾验证工具
@@ -159,7 +159,7 @@ add_library(aurora_glass_ui STATIC
     ${AURORA_CPP_DIR}/ScreenRecorder.cpp
     # --- Liquid Glass Inspector（组件注册表 + 调试工作台 + 各组件参数绑定）---
     ${ELF_GLASS_INSPECTOR_SOURCES}
-    ${AURORA_CPP_DIR}/SoftKeyboard.cpp
+    ${AURORA_CPP_DIR}/Clipboard.cpp   # 剪贴板粘贴（纯 native，零 APK）
     ${AURORA_CPP_DIR}/GlassWorkbench.cpp
     ${AURORA_CPP_DIR}/GlassTargets.cpp
     # 右下角长按缩放的可复用接线（主窗口与二级窗口共用同一套内核/手柄/震动）

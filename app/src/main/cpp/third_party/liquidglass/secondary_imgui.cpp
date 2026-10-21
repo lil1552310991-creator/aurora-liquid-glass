@@ -2,7 +2,7 @@
 #include "secondary_imgui.h"
 #include "glass/DebugHighlight.h"
 #include "UiLayout.h"
-#include "SoftKeyboard.h"   // 自绘键盘（零 APK）
+#include "Clipboard.h"   // 剪贴板粘贴（纯 native，零 APK）
 
 #include "ytbl/GlassUI.h"
 #include "PanelGestures.h"        // 手势内核（纯逻辑，离线回归见 tests/PanelGesturesTest.cpp）
@@ -66,6 +66,9 @@ static std::atomic<bool> s_Visible{false};
 static HostInfo s_HostInfo;
 static bool s_WantsTextInput = false;
 static char s_ImeText[256] = {};
+// 粘贴结果提示（3 秒后自动消失）
+static std::string s_PasteNotice;
+static double s_PasteNoticeTime = -100.0;
 static float s_TouchRect[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 static std::mutex s_TouchRectMutex;
 static std::uint32_t s_TouchWindowId = 0;
@@ -745,12 +748,36 @@ static void DrawContents() {
   // 记下输入框的 ID：下一帧设置 ReloadUserBuf 要用它（label 随语言变，不能写死）
   g_ImeInputId = ImGui::GetItemID();
   s_WantsTextInput = ImGui::IsItemActive();
-  // ★★ 自绘键盘：输入框一旦获得焦点就弹出（不再拉起系统输入法）。
-  //   这条链路里没有任何 Java / APK —— 按键直接写进 ImGui 的输入队列，
-  //   InputText 自己的光标、选区、undo 全部照常工作。
-  //   为什么要这样：系统输入法必须有 WMS 窗口做焦点目标，而窗口只能来自
-  //   已安装的 APK（app_process 进程不在 AMS 的 mProcessMap 里）。
-  if (ImGui::IsItemActive()) aurora::softkb::RequestShow();
+
+  // ★★ 文字输入：**粘贴**，不是键盘。
+  //
+  //   系统输入法必须有 WMS 窗口做焦点目标，而 WMS 窗口只能来自 AMS 注册的
+  //   进程，AMS 注册又必须有已安装的包 —— 不装 APK 就没有窗口，没有窗口就
+  //   拉不起输入法。这是框架约束，绕不过去（自绘键盘能绕，但已按要求否决）。
+  //
+  //   所以改走剪贴板：在**系统输入法**里打任意文字（中文、表情都行），
+  //   复制，回来点这里。文字是系统输入法打出来的，我们只负责读 ClipData。
+  ImGui::SameLine();
+  if (ImGui::Button(Text("粘贴", "Paste"))) {
+    std::string clip;
+    std::string why;
+    if (aurora::clipboard::ReadText(&clip, &why)) {
+      // 追加而不是替换：粘贴通常是想在已有内容后面接着写。
+      const size_t used = std::strlen(s_ImeText);
+      const size_t room = sizeof(s_ImeText) - 1 - used;
+      std::strncat(s_ImeText, clip.c_str(), room);
+      s_PasteNotice = "已粘贴 " + std::to_string(clip.size()) + " 字节";
+    } else {
+      s_PasteNotice = why.empty() ? "剪贴板里没有文本" : why;
+    }
+    s_PasteNoticeTime = ImGui::GetTime();
+  }
+  ImGui::SameLine();
+  if (ImGui::Button(Text("清空", "Clear"))) s_ImeText[0] = 0;
+  // 粘贴结果提示：3 秒后自己消失，不留常驻文字。
+  if (!s_PasteNotice.empty() && ImGui::GetTime() - s_PasteNoticeTime < 3.0) {
+    ImGui::TextDisabled("%s", s_PasteNotice.c_str());
+  }
   ImGui::Text("%s %u", Text("活动触点", "Active pointers"),
               static_cast<unsigned int>(s_HostInfo.activePointers));
   // ★★★ 触控数据行（用户报的"只要触摸窗口，整个窗口就不停抽搐"）
@@ -1725,10 +1752,6 @@ void Draw() {
     aurora::CornerResizeDrawPreview(s_CornerResize, window, WindowCornerRadiusPx());
   }
   ImGui::End();
-
-  // ★ 自绘键盘画在**所有窗口之后**：它在屏幕底部，不属于任何窗口。
-  //   用前景 draw list 画键面，按键直接写进 ImGui 输入队列。
-  aurora::softkb::Draw();
 }
 
 // ★★ 旧的 Draw*Controls / DrawHostControls 已经**整体删除**。
