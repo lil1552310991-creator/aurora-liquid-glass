@@ -272,32 +272,17 @@ struct StageTune {
 //    （原来它们是 secondary_imgui.cpp 里的 static，只有 ImGui 那一侧看得见）。
 // -----------------------------------------------------------------------------
 struct GlassScene {
-    // 5 = 按钮行原样（液态玻璃按钮 / 着色 / 表面色 / + / 打开液态弹窗）。
-    //   ★ 第 5 枚是**弹窗触发按钮**，用户要求恢复（本轮任务书 §三.A）。
-    //   ★ 卡片区那个"打开液态弹窗"是**独立成员** `dialogTrigger`，不在这个计数里。
-    static constexpr int kButtonCount = 5;
-    static constexpr int kToggleCount = 3;
-    static constexpr int kSliderCount = 2;
-    static constexpr int kChipCount = 6;
+    // ★★ 组件演示（PillButton / Toggle / Slider / TabStrip / PopMenu / 芯片 /
+    //    卡片 / 玻璃实验场）全部来自「c++ 液态玻璃展示源码」的移植，已按用户要求删除。
+    //    随之删除的还有它们各自的 PanelTune 参数和组件实例 —— 组件不存在了，
+    //    参数就没有可写的地方，留着只会让调试面板重新长出一堆假控件。
+    //
+    //    保留：窗口壳（window）、舞台参数（stage，窗口缩放/间隙用）、
+    //    以及诊断弹窗（modal，默认不触发，仅 AURORA_DIALOG_PROBE 调试用）。
 
     WindowTune window;
     StageTune stage;
-    PanelTune card;
-    PanelTune chips[kChipCount];
-    PanelTune playground;
-
-    // ---- 组件实例（每个都有自己的 tune ⇒ 参数天然互不影响）----
-    lgx::PillButton buttons[kButtonCount];
-    lgx::PillButton dialogTrigger;
-    lgx::Toggle toggles[kToggleCount];
-    lgx::Slider sliders[kSliderCount];
-    lgx::TabStrip tabs;
-    lgx::PopMenu menu;
     lgx::Modal modal;
-
-    // 组件名（供注册表与分页标题使用）
-    static const char* ButtonId(int index);
-    static const char* ButtonName(int index);
 
     GlassScene();
 };

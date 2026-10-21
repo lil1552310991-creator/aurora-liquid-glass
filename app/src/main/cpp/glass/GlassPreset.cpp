@@ -31,27 +31,17 @@ struct LegacyGroupRule {
   const char* target;
 };
 
+// ★ 这张表现在只剩三条。它原本映射 19 个分组 —— card / playground / 5 个 button /
+//   3 个 toggle / 2 个 slider / menu / tabs / chip / dialog —— 全部来自
+//   「c++ 液态玻璃展示源码」的移植，已按用户要求删除。
+//
+//   保留"旧分组名 → 新目标 ID"这层映射本身仍然有意义：用户手里可能有旧版的
+//   预设文件，其中 window 那一段还是要能读进来。映射不到的分组会被 Registry::Apply
+//   记为 skipped 并报告出来（不会静默丢数据）。
 const LegacyGroupRule kLegacyGroups[] = {
     {"window", "secondary_window"},
-    {"card", "secondary_window.card"},
-    {"playground", "secondary_window.playground"},
-    {"button", "secondary_window.pill_button_1"},
-    {"button_primary", "secondary_window.pill_button_1"},
-    {"button_tint", "secondary_window.pill_button_2"},
-    {"button_surface", "secondary_window.pill_button_3"},
-    {"button_small", "secondary_window.pill_button_4"},
-    {"toggle", "secondary_window.toggle_1"},
-    {"toggle_1", "secondary_window.toggle_1"},
-    {"toggle_2", "secondary_window.toggle_2"},
-    {"toggle_3", "secondary_window.toggle_3"},
-    {"slider", "secondary_window.slider_1"},
-    {"slider_1", "secondary_window.slider_1"},
-    {"slider_2", "secondary_window.slider_2"},
-    {"menu", "secondary_window.popmenu"},
-    {"tabs", "secondary_window.navigation"},
-    {"navigation", "secondary_window.navigation"},
-    {"chip", "secondary_window.chip_1"},
-    {"dialog", "secondary_window.dialog"},
+    {"resize", "secondary_window.resize"},
+    {"gaps", "secondary_window.capability_gaps"},
 };
 
 // 旧字段名 → 新参数 ID。只收录**确实改过名**的（同名的返回 nullptr）。

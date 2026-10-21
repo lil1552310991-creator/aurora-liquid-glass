@@ -214,30 +214,6 @@ PanelStyle BuildWindowStyle(const WindowTune& tune) {
     return style;
 }
 
-// -----------------------------------------------------------------------------
-// 组件命名（注册表 ID 与分页标题都从这里来，避免两处各写一份字符串）
-// -----------------------------------------------------------------------------
-const char* GlassScene::ButtonId(int index) {
-    switch (index) {
-        case 0: return "secondary_window.pill_button_1";
-        case 1: return "secondary_window.pill_button_2";
-        case 2: return "secondary_window.pill_button_3";
-        case 3: return "secondary_window.pill_button_4";
-        // ★ index 4 = 「打开液态弹窗」触发按钮：它**不注册进调试器**
-        //   （用户要求：弹窗相关不提供专属调试入口），所以没有对应的目标 ID。
-        default: return "secondary_window.pill_button_x";
-    }
-}
-
-const char* GlassScene::ButtonName(int index) {
-    switch (index) {
-        case 0: return "按钮 1 · 主按钮";
-        case 1: return "按钮 2 · 着色";
-        case 2: return "按钮 3 · 表面色";
-        case 3: return "按钮 4 · 小按钮";
-        default: return "按钮";
-    }
-}
 
 const char* SecondaryTargetId(const char* suffix) {
     // 注意：返回的是静态缓冲区，只在"注册时立刻使用"的场景下安全（本项目的用法）
@@ -280,138 +256,17 @@ GlassScene::GlassScene() {
     window.shadowAlpha = 0.14117647f;   // 36/255（原 (255*0.14+0.5) 写进 tint 的 alpha 字节）
     window.backdropOn = true;
 
-    // ===== 液态玻璃卡片（DrawContents 的 cardStyle + MakeCardPanel）=====
-    card.cornerTlDp = 24.0f;            // Corners::rounded(px(24))
-    card.cornerTrDp = 24.0f;
-    card.cornerBrDp = 24.0f;
-    card.cornerBlDp = 24.0f;
-    card.colorBoost = true;             // style.optics.colorBoost = true
-    card.blurDp = 10.0f;                // s_BlurDp
-    card.blurAppliedDp = 10.0f;
-    card.lensHeightDp = 12.0f;          // s_LensHeightDp
-    card.lensAmountDp = 24.0f;          // s_LensAmountDp
-    card.depthAmount = 1.0f;
-    card.spectralOn = true;             // s_Chromatic
-    card.dispersion = 0.75f;            // s_CardDispersion
-    card.edge.mode = 1;                 // MakeChipEdge(1)
-    card.edge.widthDp = 1.5f;
-    card.edge.softnessDp = 0.75f;
-    card.insetOn = true;                // InsetShadow(6, 0, 6, rgba(0.15, black), 1.0)
-    card.insetRadiusDp = 6.0f;
-    card.insetXDp = 0.0f;
-    card.insetYDp = 6.0f;
-    card.insetColor[0] = 0.0f;
-    card.insetColor[1] = 0.0f;
-    card.insetColor[2] = 0.0f;
-    card.insetColor[3] = 0.14901961f;   // 0x26 / 255
-    card.shadowOn = false;
+    // ===== 液态玻璃卡片 / 芯片 / 实验场 / 按钮 / 开关 / 滑块 / 导航 / 菜单 =====
+    // ★ 这些组件的默认参数已随组件删除（见 GlassScene 结构的说明）。
 
-    // ===== 6 枚胶囊芯片（DrawGlassChip + MakeChipTune / MakeChipEdge）=====
-    //  形状行三枚：光学与边光共用 s_ChipTune / s_ChipShapeEdge，圆角各自独立
-    //  边光行三枚：光学共用 s_ChipTune，边光各自 gradient / ambient / plain
-    for (int i = 0; i < kChipCount; ++i) {
-        PanelTune& chip = chips[i];
-        chip.colorBoost = true;
-        chip.blurDp = 2.0f;             // lgx::px(2.0f)
-        chip.blurAppliedDp = 2.0f;
-        chip.lensHeightDp = 8.0f;       // lgx::px(8.0f)
-        chip.lensAmountDp = 16.0f;      // lgx::px(16.0f)
-        chip.spectralOn = false;        // 原来根本不设 spectral ⇒ 0
-        chip.dispersion = 0.70f;
-        chip.depthAmount = 0.0f;
-        chip.edge.widthDp = 1.5f;       // MakeChipEdge 的覆盖值
-        chip.edge.softnessDp = 0.75f;
-        chip.shadowOn = false;
-        chip.insetOn = false;
-    }
-    chips[0].capsule = true;            // 原 s_ChipShape1Capsule = true
-    chips[0].cornerTlDp = chips[0].cornerTrDp = chips[0].cornerBrDp = chips[0].cornerBlDp = 16.0f;
-    chips[1].cornerTlDp = chips[1].cornerTrDp = chips[1].cornerBrDp = chips[1].cornerBlDp = 16.0f;
-    chips[2].cornerTlDp = 24.0f;        // Corners(px(24), px(8), px(24), px(8))
-    chips[2].cornerTrDp = 8.0f;
-    chips[2].cornerBrDp = 24.0f;
-    chips[2].cornerBlDp = 8.0f;
-    for (int i = 3; i < kChipCount; ++i) {
-        chips[i].cornerTlDp = chips[i].cornerTrDp = chips[i].cornerBrDp =
-            chips[i].cornerBlDp = 16.0f;   // s_ChipEdgeRadiusDp
-        chips[i].edge.mode = i - 2;        // 1=Gradient 2=Ambient 3=Plain
-    }
-    chips[4].edge.alpha = lgx::config::Render::EDGE_AMBIENT_ALPHA;   // 0.38
-    for (int i = 0; i < 3; ++i) chips[i].edge.mode = 1;              // s_ChipShapeEdge
+    // ---- 组件演示参数已随组件一起删除 ----
+    //
+    //   这里原本依次初始化：6 枚胶囊芯片（含 3 条条纹配色）、玻璃实验场、
+    //   5 枚 PillButton 的光学与尺寸、3 枚 Toggle、2 根 Slider、导航栏 TabStrip、
+    //   弹出菜单 PopMenu。它们都属于「c++ 液态玻璃展示源码」的移植，已按用户要求
+    //   删除 —— 保留这段说明是为了让后来者知道这些字段**曾经存在过**，
+    //   而不是以为漏写了初始化。
 
-    // ===== 玻璃实验场（DrawContents 的 playgroundStyle）=====
-    playground.colorBoost = true;
-    playground.blurDp = 0.0f;
-    playground.blurAppliedDp = 0.0f;
-    playground.depthAmount = 1.0f;
-    playground.spectralOn = true;
-    playground.dispersion = 0.90f;
-    playground.edgeOn = true;
-    playground.edge.mode = 3;           // EdgeLight::plain()
-    playground.edge.widthDp = lgx::config::Render::EDGE_PLAIN_WIDTH;
-    playground.edge.softnessDp = lgx::config::Render::EDGE_PLAIN_SOFTNESS;
-    playground.edge.alpha = lgx::config::Render::EDGE_PLAIN_ALPHA;
-    playground.insetOn = true;          // InsetShadow(6, 0, 6, rgba(0.15, black), 1.0)
-    playground.insetRadiusDp = 6.0f;
-    playground.insetXDp = 0.0f;
-    playground.insetYDp = 6.0f;
-    playground.insetColor[3] = 0.14901961f;
-    playground.shadowOn = false;
-
-    // ===== 液态按键（原 ApplyPillButtonTune 给五枚共用的一组光学）=====
-    //  ★ 现在**每枚一份**：结构上不可能出现"调按钮 1 改了按钮 2"。
-    for (int i = 0; i < kButtonCount; ++i) {
-        lgx::PillButton& button = buttons[i];
-        button.blurDp = lgx::config::Layout::BUTTON_BLUR_DP;                 // 2
-        button.lensHeightDp = lgx::config::Layout::BUTTON_LENS_HEIGHT_DP;    // 12
-        button.lensAmountDp = lgx::config::Layout::BUTTON_LENS_AMOUNT_DP;    // 24
-        button.spectral = 0.0f;
-        button.textSizeSp = lgx::config::Layout::BUTTON_TEXT_SP;             // 16
-        button.alphaScale = 1.0f;
-        button.shadowOn = true;
-        button.contourEdge = false;
-        button.glassOn = true;
-        button.textOn = true;
-    }
-    buttons[1].tinted = true;           // 第二枚是「着色」
-    buttons[2].surfaced = true;         // 第三枚是「表面色」
-    dialogTrigger.blurDp = lgx::config::Layout::BUTTON_BLUR_DP;
-    dialogTrigger.lensHeightDp = lgx::config::Layout::BUTTON_LENS_HEIGHT_DP;
-    dialogTrigger.lensAmountDp = lgx::config::Layout::BUTTON_LENS_AMOUNT_DP;
-    dialogTrigger.textSizeSp = lgx::config::Layout::BUTTON_TEXT_SP;
-    dialogTrigger.shadowOn = true;
-
-    // ===== 液态开关（三枚各自一份 tune）=====
-    for (int i = 0; i < kToggleCount; ++i) {
-        toggles[i].accentColor = ArgbFromFloats(stage.toggleAccent[i]);
-        toggles[i].trackColor = ArgbFromFloats(stage.toggleTrack);
-    }
-    toggles[0].on = stage.toggleFirstOn;
-    toggles[1].on = stage.toggleSecondOn;
-    toggles[2].on = stage.toggleThirdOn;
-
-    // ===== 液态滑块 =====
-    for (int i = 0; i < kSliderCount; ++i) {
-        sliders[i].accentColor = ArgbFromFloats(stage.sliderAccentDark);
-        sliders[i].trackColor = ArgbFromFloats(stage.sliderTrackColor);
-    }
-    sliders[1].setRange(0.0f, stage.sliderSecondMax);
-
-    // ===== 导航栏 =====
-    tabs.accentColor = ArgbFromFloats(stage.tabsAccentDark);
-    tabs.containerColor = ArgbFromFloats(stage.tabsContainerDark);
-    tabs.iconColor = ArgbFromFloats(stage.tabsIconColor);
-    tabs.iconSizeDp = stage.tabsIconSizeDp;
-    tabs.labelSizeDp = stage.tabsLabelSizeDp;
-    tabs.tabCount = stage.tabsCount;
-
-    // ===== 弹出菜单（PopMenu 的公开字段）=====
-    menu.setOpen(false, false);
-    menu.cursorRow = 1;
-    menu.count = 5;
-
-    // ===== 弹窗 =====
-    modal.glassBlurDp = lgx::config::Layout::DIALOG_GLASS_BLUR_DP;
 }
 
 GlassScene& Scene() {

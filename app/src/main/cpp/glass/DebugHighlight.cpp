@@ -112,35 +112,16 @@ const char* HumanNameOf(const char* targetId) {
     const char* id;
     const char* name;
   };
+  // 只列**当前真实存在**的调试目标。组件演示删除后，卡片/实验场/菜单/导航/
+  // 芯片/开关/滑杆/按钮都不再有注册表条目 —— 留在这里只会让标签显示一个
+  // 早已不存在的东西（取景框也不会出现，因为那个目标永远无法被选中）。
   static const Entry kTable[] = {
       {"secondary_window", "整窗口"},
-      {"secondary_window.card", "液态玻璃卡片"},
-      {"secondary_window.playground", "玻璃实验场"},
       {"secondary_window.resize", "窗口缩放"},
-      {"secondary_window.menu", "弹出菜单"},
-      {"secondary_window.navigation", "导航栏"},
-      {"pill_button_0", "按钮 1"},
-      {"pill_button_1", "按钮 2"},
-      {"pill_button_2", "按钮 3"},
-      {"pill_button_3", "按钮 4"},
+      {"secondary_window.capability_gaps", "能力缺口总表"},
   };
   for (const Entry& entry : kTable) {
     if (std::strcmp(entry.id, targetId) == 0) return entry.name;
-  }
-  // 芯片 / 开关 / 滑杆这类批量生成的 id 用前缀识别
-  struct Prefix {
-    const char* prefix;
-    const char* name;
-  };
-  static const Prefix kPrefixes[] = {
-      {"glass_chip_", "玻璃芯片"},
-      {"glass_toggle_", "开关"},
-      {"glass_slider_", "滑杆"},
-  };
-  for (const Prefix& prefix : kPrefixes) {
-    if (std::strncmp(prefix.prefix, targetId, std::strlen(prefix.prefix)) == 0) {
-      return prefix.name;
-    }
   }
   return nullptr;
 }

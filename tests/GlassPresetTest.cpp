@@ -41,6 +41,8 @@ struct Tune {
   float accent[4] = {0.0f, 0.478f, 1.0f, 1.0f};
 };
 
+// 窗口目标：v1 迁移用例走的是它（组件演示删除后，只剩窗口相关的目标）。
+Tune g_window;
 Tune g_button1;
 Tune g_button2;
 
@@ -73,6 +75,7 @@ struct Fixture {
   Registry registry;
   PresetStore store{registry};
   Fixture() {
+    Register(registry, "secondary_window", "整窗口", &g_window, 0);
     Register(registry, "secondary_window.pill_button_1", "按钮 1", &g_button1, 10);
     Register(registry, "secondary_window.pill_button_2", "按钮 2", &g_button2, 20);
   }
@@ -200,7 +203,7 @@ int main() {
     const char* v1 = R"({
       "version": 1,
       "groups": {
-        "button": { "blur": 3.5, "spectral": 0.8, "shadowOn": false, "accent": "#4080C0FF" },
+        "window": { "blur": 3.5, "spectral": 0.8, "shadowOn": false, "accent": "#4080C0FF" },
         "不认识的组": { "blur": 1.0 }
       }
     })";
@@ -215,12 +218,12 @@ int main() {
     }
     Check(sawRename, "字段改名被记录在报告里");
     fx.store.ApplyPreset(fx.store.ActiveName());
-    Check(std::fabs(g_button1.blurDp - 3.5f) < 1e-6f, "v1 的 blur 写进了 v2 的 blurDp");
-    Check(std::fabs(g_button1.dispersion - 0.8f) < 1e-6f,
+    Check(std::fabs(g_window.blurDp - 3.5f) < 1e-6f, "v1 的 blur 写进了 v2 的 blurDp");
+    Check(std::fabs(g_window.dispersion - 0.8f) < 1e-6f,
           "v1 的 spectral 迁移成了 v2 的 dispersion");
-    Check(!g_button1.shadowOn, "v1 的布尔值迁移正确");
-    Check(std::fabs(g_button1.accent[0] - 0.251f) < 0.01f &&
-          std::fabs(g_button1.accent[2] - 0.753f) < 0.01f, "v1 的 #RRGGBBAA 迁移成 RGBA");
+    Check(!g_window.shadowOn, "v1 的布尔值迁移正确");
+    Check(std::fabs(g_window.accent[0] - 0.251f) < 0.01f &&
+          std::fabs(g_window.accent[2] - 0.753f) < 0.01f, "v1 的 #RRGGBBAA 迁移成 RGBA");
   }
 
   // ---- 组 5：原子保存 / 读回 / 损坏文件 -----------------------------------
