@@ -1,3 +1,4 @@
+#include "AuroraLog.h"
 #include "VulkanBackend.h"
 
 #if defined(__ANDROID__)
@@ -17,15 +18,17 @@ namespace {
 // present 恒为 0 却不知道为什么。
 int g_vkDiagBudget = 8;
 void VkDiag(const char* what, VkResult result) {
+    (void)what; (void)result;   // 纯净版：AURORA_LOG 为空
     if (g_vkDiagBudget <= 0) return;
     --g_vkDiagBudget;
-    __android_log_print(ANDROID_LOG_WARN, "AuroraVk", "%s result=%d", what,
+    AURORA_LOG(ANDROID_LOG_WARN, "AuroraVk", "%s result=%d", what,
                         static_cast<int>(result));
 }
 void VkDiagText(const char* what) {
+    (void)what;
     if (g_vkDiagBudget <= 0) return;
     --g_vkDiagBudget;
-    __android_log_print(ANDROID_LOG_WARN, "AuroraVk", "%s", what);
+    AURORA_LOG(ANDROID_LOG_WARN, "AuroraVk", "%s", what);
 }
 }  // namespace
 #endif

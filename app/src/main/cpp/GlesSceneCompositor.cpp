@@ -1,3 +1,4 @@
+#include "AuroraLog.h"
 #include "GlesSceneCompositor.h"
 
 #include "SceneComposite.h"
@@ -14,7 +15,7 @@
 namespace aurora {
 namespace {
 
-constexpr char kLogTag[] = "Aurora";
+[[maybe_unused]] constexpr char kLogTag[] = "Aurora";
 
 const char* kVertexSource =
     "#version 300 es\n"
@@ -61,7 +62,7 @@ unsigned int compileStage(GLenum type, const char* source) {
     if (status != GL_TRUE) {
         char log[512] = {};
         glGetShaderInfoLog(shader, sizeof(log) - 1, nullptr, log);
-        __android_log_print(ANDROID_LOG_ERROR, kLogTag, "scene compositor shader: %s", log);
+        AURORA_LOG(ANDROID_LOG_ERROR, kLogTag, "scene compositor shader: %s", log);
         glDeleteShader(shader);
         return 0;
     }
@@ -131,7 +132,7 @@ bool GlesSceneCompositor::ensureResources() {
     if (linked != GL_TRUE) {
         char log[512] = {};
         glGetProgramInfoLog(program, sizeof(log) - 1, nullptr, log);
-        __android_log_print(ANDROID_LOG_ERROR, kLogTag, "scene compositor link: %s", log);
+        AURORA_LOG(ANDROID_LOG_ERROR, kLogTag, "scene compositor link: %s", log);
         glDeleteProgram(program);
         return false;
     }

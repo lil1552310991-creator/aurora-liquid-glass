@@ -1,3 +1,4 @@
+#include "AuroraLog.h"
 #include "LiquidGlassRuntime.h"
 #include "glass/DebugHighlight.h"
 #include "UiLayout.h"
@@ -31,7 +32,7 @@
 namespace aurora {
 namespace {
 
-constexpr char kLogTag[] = "Aurora";
+[[maybe_unused]] constexpr char kLogTag[] = "Aurora";
 
 bool g_initialized = false;
 bool g_stylePrepared = false;
@@ -333,9 +334,10 @@ void reportBackdropPlan(const BackdropPlan& plan, const BackendDescriptor& backe
     g_backdropMappingHeight = plan.mappingHeight;
     // Nothing to sample on a translucent host means the glass falls back to its
     // own tint; flag it so the missing producer is visible in logcat.
-    const int level = (plan.origin == BackdropOrigin::None && backend.hostSurfaceIsTransparent)
+    [[maybe_unused]] const int level = (plan.origin == BackdropOrigin::None &&
+                                               backend.hostSurfaceIsTransparent)
         ? ANDROID_LOG_WARN : ANDROID_LOG_INFO;
-    __android_log_print(level, kLogTag,
+    AURORA_LOG(level, kLogTag,
                         "glass backdrop=%s texture=%u map=%dx%d transparent=%d projection=%d stale=%d neutral=%d",
                         BackdropOriginName(plan.origin),
                         static_cast<unsigned int>(plan.texture), plan.mappingWidth,
@@ -500,14 +502,14 @@ void UpdateLiquidGlassDiagnostics(const HostCapabilities& host,
             if (now - lastStamp >= 1.0) {
                 const auto snap = aurora::panel_efficiency::snapshot();
                 const double dt = (lastStamp > 0.0) ? (now - lastStamp) : 1.0;
-                const double paints = static_cast<double>(snap.panelPaints - lastPaints) / dt;
-                const double gathers = static_cast<double>(snap.gatherRuns - lastGatherRuns) / dt;
-                const double gatheredMpx =
+                [[maybe_unused]] const double paints = static_cast<double>(snap.panelPaints - lastPaints) / dt;
+                [[maybe_unused]] const double gathers = static_cast<double>(snap.gatherRuns - lastGatherRuns) / dt;
+                [[maybe_unused]] const double gatheredMpx =
                     static_cast<double>(snap.gatheredPixels - lastGatheredPx) / dt / 1.0e6;
-                const double capturedMpx =
+                [[maybe_unused]] const double capturedMpx =
                     static_cast<double>(snap.capturedPixels - lastCapturedPx) / dt / 1.0e6;
-                const double culled = static_cast<double>(snap.culledPaints - lastCulledPaints) / dt;
-                __android_log_print(
+                [[maybe_unused]] const double culled = static_cast<double>(snap.culledPaints - lastCulledPaints) / dt;
+                AURORA_LOG(
                     ANDROID_LOG_INFO, kLogTag,
                     "PANEL fps=%.0f paints/s=%.1f gather/s=%.1f gathered=%.2fMpx captured=%.2fMpx culled=%.1f",
                     static_cast<double>(frameStats.smoothedFps), paints, gathers, gatheredMpx,
@@ -522,6 +524,9 @@ void UpdateLiquidGlassDiagnostics(const HostCapabilities& host,
         }
     }
     info.worstFrameMilliseconds = frameStats.worstFrameMilliseconds;
+    // 长帧指标：平均帧率掩盖的那种"偶发顿挫"，只有它能反映出来。
+    info.jankPerSecond = frameStats.jankPerSecond;
+    info.jankThresholdMs = frameStats.jankThresholdMs;
     info.safeLeft = host.safeRegion.left;
     info.safeTop = host.safeRegion.top;
     info.safeRight = host.safeRegion.right;
@@ -660,7 +665,7 @@ void DrawLiquidGlassShowcase() {
                 g_themeWindowPos[1] = layout.theme.y;
                 g_themeWindowSize[0] = layout.theme.w;
                 g_themeWindowSize[1] = layout.theme.h;
-                __android_log_print(ANDROID_LOG_INFO, kLogTag,
+                AURORA_LOG(ANDROID_LOG_INFO, kLogTag,
                      "界面布局：屏幕 %.0fx%.0f (%s) 主题窗口 %.0fx%.0f @ (%.0f,%.0f)",
                      screenSize.x, screenSize.y, layout.horizontal ? "横屏" : "竖屏",
                      layout.theme.w, layout.theme.h, layout.theme.x, layout.theme.y);
@@ -725,7 +730,7 @@ void DrawLiquidGlassShowcase() {
                 const float y = aurora::ImeAvoidWindowY(g_themeWindowPos[1], g_themeImeShift, want);
                 ImGui::SetNextWindowPos(ImVec2(g_themeWindowPos[0], y), ImGuiCond_Always);
                 g_themeImeShift = want;
-                __android_log_print(ANDROID_LOG_INFO, kLogTag,
+                AURORA_LOG(ANDROID_LOG_INFO, kLogTag,
                                     "输入法避让：主题窗口上移 %.0fpx（键盘顶边 %.0f）", want,
                                     imeTopNow);
             }

@@ -24,7 +24,11 @@ struct HostInfo final {
   std::uint32_t presentModes = 0;
   std::uint64_t frameCount = 0;
   float fps = 0.0f;
+  // 最近 1 秒的最差帧（会随时间重置）。旧版是历史最差，数字没有时效性。
   float worstFrameMilliseconds = 0.0f;
+  // 每秒长帧数：这是"卡顿感"的直接来源。平均帧率看不出来的抖动，靠它体现。
+  float jankPerSecond = 0.0f;
+  float jankThresholdMs = 12.5f;
   float safeLeft = 0.0f;
   float safeTop = 0.0f;
   float safeRight = 0.0f;

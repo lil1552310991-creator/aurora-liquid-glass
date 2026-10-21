@@ -1,3 +1,4 @@
+#include "../../AuroraLog.h"
 #include "secondary_imgui.h"
 #include "glass/DebugHighlight.h"
 #include "UiLayout.h"
@@ -660,12 +661,17 @@ static bool DialogTraceEnabled() {
 }
 
 static void DialogLog(const char* fmt, ...) {
+  // 纯净版：DialogLog 只在 AURORA_DIALOG_TRACE=1 时被调用，但函数体本身
+  // 仍然会被链接进来。编译期直接留空，连 va_start 都不做。
+#if AURORA_SILENT
+  (void)fmt;
+#else
   va_list args;
   va_start(args, fmt);
   __android_log_vprint(ANDROID_LOG_INFO, "aurora_overlay", fmt, args);
   va_end(args);
+#endif
 }
-
 /** 触控数据仿真：AURORA_TOUCH_SIM=1 时让 Pan/Pinch/Rot 在极端值之间交替。
  *  为的是**在没有真实手指的情况下**也能验证"数值长度变化会不会抖动布局" ——
  *  交替值刻意取"最短"与"最长"两种文本宽度（0.0,0.0 vs -9999.9,-9999.9）。 */
@@ -864,9 +870,19 @@ static void DrawHostDiagnostics() {
     ImGui::Text("Surface   %s", s_HostInfo.surfaceReady ? "ready" : "lost");
     ImGui::Text("IME       %s", s_HostInfo.imeAvailable ? "available" : "unavailable");
     ImGui::Text("Backdrop  %s", s_HostInfo.backgroundInput ? "host framebuffer" : "fallback");
-    ImGui::Text("Frames    %llu | FPS %.1f | worst %.1f ms",
-                static_cast<unsigned long long>(s_HostInfo.frameCount),
-                s_HostInfo.fps, s_HostInfo.worstFrameMilliseconds);
+    // ★ 帧率与"卡不卡"分开显示。用户报过"感觉到掉帧但显示 120fps"，
+    //   根因是旧版只给平均帧率（EMA 平滑，掩盖偶发长帧）。现在把长帧数
+    //   摆在显眼位置：它才是和手感对应的那个数。
+    ImGui::Text("Frames    %llu | FPS %.1f",
+                static_cast<unsigned long long>(s_HostInfo.frameCount), s_HostInfo.fps);
+    {
+      const float jank = s_HostInfo.jankPerSecond;
+      const ImVec4 color = jank < 0.5f   ? ImVec4(0.45f, 0.90f, 0.50f, 1.0f)
+                           : jank < 3.0f ? ImVec4(0.95f, 0.80f, 0.35f, 1.0f)
+                                         : ImVec4(0.95f, 0.45f, 0.40f, 1.0f);
+      ImGui::TextColored(color, "Jank      %.1f/s (>%.1fms) worst %.1f ms", jank,
+                         s_HostInfo.jankThresholdMs, s_HostInfo.worstFrameMilliseconds);
+    }
     ImGui::Text("Safe area %.0f,%.0f - %.0f,%.0f",
                 s_HostInfo.safeLeft, s_HostInfo.safeTop,
                 s_HostInfo.safeRight, s_HostInfo.safeBottom);
@@ -1037,12 +1053,15 @@ static aurora::PanelGesture s_GestureLoggedOwner = aurora::PanelGesture::None;
 // 手势状态转换日志：只在状态变化时打（平时一条都不打）。
 // 为什么要它：真机上"拖到一半停了"这种问题，看截图看不出来，只有日志能给现场。
 static void GestureLog(const char* fmt, ...) {
+#if AURORA_SILENT
+  (void)fmt;   // 纯净版：连 va_start 都不做
+#else
   va_list args;
   va_start(args, fmt);
   __android_log_vprint(ANDROID_LOG_INFO, "aurora_overlay", fmt, args);
   va_end(args);
+#endif
 }
-
 static const char* GestureName(aurora::PanelGesture g) {
   switch (g) {
     case aurora::PanelGesture::Component: return "组件";
@@ -1675,12 +1694,20 @@ void Draw() {
     contentList->AddCallback(ContentMaskSetCallback, s_ContentMask);
     lgx::setContentMask(s_ContentMask[0], s_ContentMask[1], s_ContentMask[2], s_ContentMask[3],
                         contentRadius, io.DisplaySize.y);
+    // ★★ 内容和实时信息都必须在遮罩**之内**。
+    //
+    //   用户报的 bug：「窗口里面的字体没有严格限制在圆角范围内，冒出右上角的圆角」。
+    //   根因就是下面这一行原来在 setContentMask 清除**之后**：
+    //       DrawContents();                                  ← 在遮罩内
+    //       lgx::setContentMask(0,0,0,0,-1,0);               ← 清除
+    //       DrawHostDiagnostics();                           ← 在遮罩外，所以会出圆角
+    //   删掉两条分隔线后实时信息紧贴输入区、更靠上，正好撞到右上角圆角，问题才显形。
+    //
+    //   现在两者都在遮罩范围内：先画内容，再画实时信息，最后才清除遮罩。
     DrawContents();
+    DrawHostDiagnostics();
     lgx::setContentMask(0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f);   // 外壳/后续不受影响
     contentList->AddCallback(ContentMaskClearCallback, nullptr);
-    DrawHostDiagnostics();
-    // 手势层放在内容之后：这时 ImGui 的 hover/active 判定是本帧最新的，
-    // 归属判定才能用"真实 item 矩形"而不是上一帧的残留。
     RunSecondaryWindowGestures(window);
 
     // 角部缩放手柄：几何每帧从窗口实时矩形现算，进度与**边框加厚**共用同一个

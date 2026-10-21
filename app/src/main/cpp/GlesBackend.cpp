@@ -1,3 +1,4 @@
+#include "AuroraLog.h"
 #include "GlesBackend.h"
 #include <android/native_window.h>
 
@@ -29,7 +30,7 @@
 #endif
 
 namespace {
-constexpr char kLogTag[] = "Aurora";
+[[maybe_unused]] constexpr char kLogTag[] = "Aurora";
 // A projection producer that stops delivering frames (user revoked the capture,
 // the service died) must not keep feeding a frozen desktop into the glass.
 constexpr std::chrono::milliseconds kProjectionStaleAfter{1500};
@@ -181,7 +182,8 @@ GLuint compileShader(GLenum type, const char* source) {
 }
 
 void LogError(const char* message) {
-    __android_log_print(ANDROID_LOG_ERROR, kLogTag, "%s", message);
+    (void)message;   // 纯净版：AURORA_LOG 展开成 (void)0，参数需要显式标记未用
+    AURORA_LOG(ANDROID_LOG_ERROR, kLogTag, "%s", message);
 }
 }
 
@@ -370,7 +372,7 @@ bool GlesBackend::initialize(ANativeWindow* window, int width, int height) {
     // ★ 图集是**懒构建**的（第一次 GetTexDataAsRGBA32 才建），所以这里显式 Build 一次，
     //   否则读到的是 0x0（第一版就是这么记错的）。Build 之后后端再取就是现成的数据。
     io.Fonts->Build();
-    __android_log_print(ANDROID_LOG_INFO, kLogTag,
+    AURORA_LOG(ANDROID_LOG_INFO, kLogTag,
                         "字体图集 %dx%d（%.1f MB 上传，含 UI 字符 %d 个 + 常用汉字 + 符号区）",
                         io.Fonts->TexWidth, io.Fonts->TexHeight,
                         static_cast<double>(io.Fonts->TexWidth) * io.Fonts->TexHeight * 4.0 /
@@ -926,9 +928,10 @@ bool GlesBackend::updateProjectionHardwareBuffer(AHardwareBuffer* buffer,
         }
     };
     const auto fail = [this, &notifyProducer](const char* reason) {
+            (void)reason;   // 纯净版同上
         ++projectionUploadFailureCount_;
         if (projectionUploadFailureCount_ <= 3u || projectionUploadFailureCount_ % 60u == 0u) {
-            __android_log_print(ANDROID_LOG_WARN, kLogTag,
+            AURORA_LOG(ANDROID_LOG_WARN, kLogTag,
                                 "Hardware backdrop import failed: %s (total %u)",
                                 reason, projectionUploadFailureCount_);
         }
@@ -1157,7 +1160,7 @@ void GlesBackend::maybeDumpWorldBase() {
             std::fprintf(file, "P6\n%d %d\n255\n", outW, outH);
             std::fwrite(pixels.data(), 1, pixels.size(), file);
             ::fclose(file);
-            __android_log_print(ANDROID_LOG_INFO, kLogTag,
+            AURORA_LOG(ANDROID_LOG_INFO, kLogTag,
                                 "world base dumped: %s %dx%d (source %dx%d)",
                                 path, outW, outH, projectionWidth_, projectionHeight_);
         }
@@ -1284,7 +1287,7 @@ void GlesBackend::submit(ImDrawData* drawData) {
                 static bool warned = false;
                 if (!warned) {
                     warned = true;
-                    __android_log_print(ANDROID_LOG_WARN, kLogTag,
+                    AURORA_LOG(ANDROID_LOG_WARN, kLogTag,
                                         "全屏接管：世界底层合成失败，本帧退回透明覆盖层");
                 }
             }

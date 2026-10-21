@@ -1,3 +1,4 @@
+#include "AuroraLog.h"
 #include "Renderer.h"
 #include "ThreadTuning.h"   // 调度优化：通用 + 按本机 CPU 拓扑的设备深度优化
 #include <android/log.h>
@@ -586,13 +587,13 @@ void Renderer::run() {
         if (schedEnabled) {
             const aurora::tuning::TuningResult init = aurora::tuning::Initialize("aurora-render");
             schedCpuPrev = aurora::tuning::ReadCpuTimes();
-            __android_log_print(ANDROID_LOG_INFO, "Aurora",
+            AURORA_LOG(ANDROID_LOG_INFO, "Aurora",
                                 "调度: soc=%s 拓扑=%s 初始化=[%s] 绑核=%s",
                                 init.soc.empty() ? "未知" : init.soc.c_str(),
                                 init.topology.empty() ? "未知" : init.topology.c_str(),
                                 init.actions.c_str(), schedAllowPin ? "显式开启" : "关闭(默认)");
         } else {
-            __android_log_print(ANDROID_LOG_INFO, "Aurora", "调度: 已按 AURORA_SCHED_TUNING=0 关闭");
+            AURORA_LOG(ANDROID_LOG_INFO, "Aurora", "调度: 已按 AURORA_SCHED_TUNING=0 关闭");
         }
     }
     auto nextDeadline = std::chrono::steady_clock::now();
@@ -767,7 +768,7 @@ void Renderer::run() {
                     }
                     appliedFrameRate = 0.0f;
                     condition_.notify_all();
-                    __android_log_print(ANDROID_LOG_WARN, "Aurora",
+                    AURORA_LOG(ANDROID_LOG_WARN, "Aurora",
                                         "Vulkan 看门狗: 4 秒内没有一帧被 present"
                                         "（present=%.1f）state=%d 诊断=[%s]，已自动退回 GLES",
                                         presentFps, static_cast<int>(live.state),
@@ -807,7 +808,7 @@ void Renderer::run() {
                 const aurora::tuning::ProfileDecision decision =
                     aurora::tuning::ApplySceneProfile(ctx, &schedProfile, schedAllowPin);
                 if (decision.changed) {
-                    __android_log_print(
+                    AURORA_LOG(
                         ANDROID_LOG_INFO, "Aurora",
                         "调度档位: nice=%d uclamp=%d%% 绑核=%s 系统忙=%d%% 在动=%d 屏=%.0f 背景=%.0f -> %s",
                         decision.profile.nice, decision.profile.uclampPercent,
@@ -1030,7 +1031,7 @@ void Renderer::renderFrame() {
         ++consecutiveNotReady;
         if (consecutiveNotReady < 90) {
             if (consecutiveNotReady == 1 || consecutiveNotReady % 30 == 0) {
-                __android_log_print(ANDROID_LOG_WARN, "Aurora",
+                AURORA_LOG(ANDROID_LOG_WARN, "Aurora",
                                     "渲染后端暂未就绪（第 %d 帧），等待恢复",
                                     consecutiveNotReady);
             }
@@ -1038,7 +1039,7 @@ void Renderer::renderFrame() {
             if (projectionReadComplete) std::exchange(projectionReadComplete, {})();
             return;
         }
-        __android_log_print(ANDROID_LOG_ERROR, "Aurora",
+        AURORA_LOG(ANDROID_LOG_ERROR, "Aurora",
                             "渲染后端连续 %d 帧未就绪，判定失败", consecutiveNotReady);
         if (projectionHardwareBuffer) AHardwareBuffer_release(projectionHardwareBuffer);
         if (projectionReadComplete) std::exchange(projectionReadComplete, {})();
@@ -1161,7 +1162,7 @@ void Renderer::renderFrame() {
             static int regionLogBudget = 2;
             if (regionLogBudget > 0) {
                 --regionLogBudget;
-                __android_log_print(ANDROID_LOG_INFO, "Aurora",
+                AURORA_LOG(ANDROID_LOG_INFO, "Aurora",
                                     "部分接管区域: %.0fx%.0f @ (%.0f,%.0f)，占整屏 %.0f%%"
                                     "（整屏 %dx%d，形状数 %zu）",
                                     region[2], region[3], region[0], region[1],

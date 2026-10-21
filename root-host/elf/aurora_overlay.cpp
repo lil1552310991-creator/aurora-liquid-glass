@@ -84,7 +84,7 @@ extern char** environ;
 
 namespace {
 
-constexpr char kTag[] = "aurora_overlay";
+[[maybe_unused]] constexpr char kTag[] = "aurora_overlay";
 
 // 采集的整屏像素尺寸上界（实际宽高从 screencap 的 16 字节头里读，不硬编码）
 constexpr int kMaxCaptureW = 4096;
@@ -116,6 +116,25 @@ void recordLastLog(const char* s);
 //    - 要看详细输出：`--verbose` / `-v` / `AURORA_VERBOSE=1`，或直接用 `--dump`（本身即诊断）。
 bool g_quiet = true;
 
+// ★★ 纯净版：编译期彻底关掉日志。
+//
+//   为什么不是"运行期判断"：logf 的开销不在写入，而在**参数格式化** ——
+//   vsnprintf 每次都要解析格式串、转数字、拼字符串，每秒几百次就是实打实的
+//   CPU 时间；后面还有 __android_log_write 的系统调用和 recordLastLog 的拷贝。
+//   只有把整个函数体在编译期拿掉，这些开销才真的消失。
+//
+//   代价：崩溃取证里"最后一条日志"会缺。crash report 仍然会写文件（那是崩溃
+//   路径，不在热路径上），只是没有最后那句上下文。用户要的是"任何时候都不卡"，
+//   这个交换是划算的。
+//
+//   需要日志时用 -DAURORA_SILENT=0 重新构建（tools/pack_elf_sh.ps1 会透传）。
+#if defined(AURORA_SILENT) && AURORA_SILENT
+void logf(int prio, const char* fmt, ...) {
+    (void)prio;
+    (void)fmt;
+    // 连 va_start / vsnprintf 都不执行。
+}
+#else
 void logf(int prio, const char* fmt, ...) {
     char buf[1024];
     va_list ap;
@@ -129,6 +148,7 @@ void logf(int prio, const char* fmt, ...) {
     }
     recordLastLog(buf);
 }
+#endif
 
 /** 只在**失败**时说话：一行给出原因，细节落文件（成功时一个字都不打）。 */
 void reportFailure(const char* what, const char* detail) {
@@ -140,7 +160,9 @@ void reportFailure(const char* what, const char* detail) {
         if (detail != nullptr) std::fprintf(f, "详情  = %s\n", detail);
         std::fclose(f);
     }
+#if !AURORA_SILENT
     __android_log_write(ANDROID_LOG_ERROR, kTag, what ? what : "启动失败");
+#endif
     if (!g_quiet) {
         std::fprintf(stderr, "[overlay] %s\n", what ? what : "启动失败");
         std::fflush(stderr);
@@ -1887,26 +1909,28 @@ bool yesPhysical = false;    // 兼容旧命令行；物理屏闸门已删除，
             nextGeometry = pendingGeometry;
         }
         if (nextGeometry != appliedGeometry) {
-            layerW = nextGeometry.width;
-            layerH = nextGeometry.height;
-            // ★★ resize 失败**不再退出**。
+            const int newW = nextGeometry.width;
+            const int newH = nextGeometry.height;
+            // ★★ resize 的两种结果必须**分开处理**，否则画面会拉伸。
             //
-            //   这条路径原来直接 store(13) + break，而它最常见的触发条件是
-            //   "旧 Android 没有 SurfaceControl::updateDefaultBufferSize 这个符号"
-            //   —— 那是**可选**符号（见 aosp_glue.h 的 R(..., false)）。于是转一次屏
-            //   整个覆盖层就消失，用户看到的是"跑着跑着自己关了"。
+            //   现象（用户报的）：开启窗口时横竖屏切换，半边屏幕异常拉伸。
+            //   根因：layerW/layerH 先被改成新尺寸，而图层没真的 resize 成功 ——
+            //        渲染器按新尺寸画到旧尺寸的图层上，于是被拉伸。
             //
-            //   现在降级：保留旧图层尺寸继续跑。画面可能被拉伸（因为 framebuffer
-            //   还是旧尺寸），但**总比程序消失好**，而且日志会明确说明原因。
-            //   appliedGeometry 仍然更新，避免每帧重试刷日志。
-            logf(ANDROID_LOG_WARN,
-                 "显示旋转后 resize 失败（%s），保持 %dx%d 继续运行", overlay.error(),
-                 layerW, layerH);
-            appliedGeometry = nextGeometry;
-            lastApplied.clear();
-            lastShapes.clear();
-            logf(ANDROID_LOG_INFO, "[Geometry] logical=%dx%d rotation=%d generation=%u crop/input/viewport updated",
-                 layerW, layerH, appliedGeometry.rotation, appliedGeometry.generation);
+            //   正确做法是让"图层实际尺寸"和"渲染器认为的尺寸"始终一致：
+            //   成功才更新 layerW/layerH；失败就保留旧值，画面维持旧几何（不拉伸），
+            //   也不会因为这一下就退出程序。
+            if (overlay.resize(newW, newH)) {
+                layerW = newW;
+                layerH = newH;
+                appliedGeometry = nextGeometry;
+                lastApplied.clear();
+                lastShapes.clear();
+            } else {
+                // 保留旧几何：图层还是旧尺寸，layerW/layerH 也保持旧值 ⇒ 不拉伸。
+                // appliedGeometry 仍然更新，避免每帧重试刷屏（下次真的转屏时会再试）。
+                appliedGeometry = nextGeometry;
+            }
         }
         // Snapshot belongs to the completed render frame, in physical pixels.
         // Replacing the union removes old positions, gaps and transparent corners.

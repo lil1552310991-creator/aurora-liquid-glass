@@ -1,6 +1,15 @@
 cmake_minimum_required(VERSION 3.22.1)
 project(aurora_root_elf LANGUAGES CXX)
 
+# ★ 纯净版开关（全局）：默认 1 = 编译期移除所有日志，连参数都不求值。
+#   覆盖范围包括 aurora_glass_ui（ImGui 外壳 / 玻璃 UI）与 aurora_overlay 本身。
+#   需要日志时：cmake -DAURORA_SILENT=0 …
+if(NOT DEFINED AURORA_SILENT)
+    set(AURORA_SILENT 1)
+endif()
+add_compile_definitions(AURORA_SILENT=${AURORA_SILENT})
+message(STATUS "AURORA_SILENT=${AURORA_SILENT} (1 = 纯净版，无任何日志)")
+
 # =============================================================================
 # Aurora 纯 ELF 液态玻璃覆盖层
 #

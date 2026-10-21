@@ -20,15 +20,20 @@
 namespace aurora {
 namespace {
 
-constexpr char kLogTag[] = "Aurora";
+[[maybe_unused]] constexpr char kLogTag[] = "Aurora";
 
 void ResizeLog(const char* format, ...) {
+#if AURORA_SILENT
+    // 纯净版：连 vsnprintf 都不做。这个函数在缩放拖拽时可能每帧被调用。
+    (void)format;
+#else
     char buffer[512];
     va_list args;
     va_start(args, format);
     std::vsnprintf(buffer, sizeof(buffer), format, args);
     va_end(args);
     __android_log_print(ANDROID_LOG_INFO, kLogTag, "%s", buffer);
+#endif
 }
 
 bool EnvOn(const char* name) {

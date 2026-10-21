@@ -1,3 +1,4 @@
+#include "../AuroraLog.h"
 #include "GlassRegistry.h"
 
 #include <algorithm>
@@ -479,7 +480,7 @@ bool Registry::Set(const std::string& target, const std::string& param, const Pa
                    sanitized.rgba[0], sanitized.rgba[1], sanitized.rgba[2], sanitized.rgba[3]);
           break;
       }
-      __android_log_print(ANDROID_LOG_INFO, "AuroraParam",
+      AURORA_LOG(ANDROID_LOG_INFO, "AuroraParam",
                           "SET %s/%s = %s (applyRef=%s)",
                           target.c_str(), param.c_str(), valueText,
                           slot->applyRef != nullptr ? (slot->applyRef != slot->ref ? "separate" : "same")

@@ -4,6 +4,7 @@
 //  每一条都标了出处（文件:行 或 常量名）。改动这里的任何默认值都等于改变默认
 //  外观，必须先确认那是有意的 —— tests/GlassRecipeTest.cpp 会盯住其中一部分。
 // =============================================================================
+#include "../AuroraLog.h"
 #include "glass/GlassScene.h"
 #if defined(__ANDROID__)
 #include <android/log.h>
@@ -101,7 +102,7 @@ PanelStyle BuildPanelStyle(const PanelTune& tune) {
             lastLensH = tune.lensHeightDp;
             lastLensA = tune.lensAmountDp;
             lastCorner = tune.cornerTlDp;
-            __android_log_print(ANDROID_LOG_INFO, "AuroraParam",
+            AURORA_LOG(ANDROID_LOG_INFO, "AuroraParam",
                                 "TUNE blur=%.3f lensH=%.3f lensA=%.3f cornerTl=%.3f spectral=%.3f",
                                 static_cast<double>(tune.blurDp),
                                 static_cast<double>(tune.lensHeightDp),
@@ -170,7 +171,7 @@ PanelStyle BuildWindowStyle(const WindowTune& tune) {
                 lastCorner = tune.cornerDp;
                 lastBlur = tune.blurDp;
                 lastLensH = tune.lensHeightDp;
-                __android_log_print(ANDROID_LOG_INFO, "AuroraParam",
+                AURORA_LOG(ANDROID_LOG_INFO, "AuroraParam",
                                     "WINDOW corner=%.3f blur=%.3f lensH=%.3f glass=%d",
                                     static_cast<double>(tune.cornerDp),
                                     static_cast<double>(tune.blurDp),

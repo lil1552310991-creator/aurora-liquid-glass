@@ -1,6 +1,7 @@
 // =============================================================================
 //  调试工作台实现（见 GlassWorkbench.h 的三条职责）
 // =============================================================================
+#include "AuroraLog.h"
 #include "GlassWorkbench.h"
 #include "glass/DebugHighlight.h"
 
@@ -29,7 +30,7 @@ namespace aurora {
 namespace glass {
 namespace {
 
-constexpr char kLogTag[] = "AuroraGlass";
+[[maybe_unused]] constexpr char kLogTag[] = "AuroraGlass";
 constexpr double kAutoSaveDelaySeconds = 2.0;
 
 // AURORA_UI_TRACE=1：把参数行的**实际**布局与控件实际宽度打出来（默认一条都不打）。
@@ -544,7 +545,7 @@ bool DrawParamRow(const std::string& targetId, Target& target, std::size_t param
     if (UiTrace()) {
       const float actual = ImGui::GetItemRectSize().x;
       if (actual > layout.reset + 0.5f) {
-        __android_log_print(ANDROID_LOG_WARN, kLogTag,
+        AURORA_LOG(ANDROID_LOG_WARN, kLogTag,
                             "[布局] 重置按钮实测 %.1f > 预算 %.1f（可用 %.1f）",
                             actual, layout.reset, layout.available);
       }
@@ -561,7 +562,7 @@ bool DrawParamRow(const std::string& targetId, Target& target, std::size_t param
       const float itemRight = ImGui::GetItemRectMax().x;
       if (!warnedOnce && itemRight > contentRight + 0.5f) {
         warnedOnce = true;
-        __android_log_print(ANDROID_LOG_WARN, kLogTag,
+        AURORA_LOG(ANDROID_LOG_WARN, kLogTag,
                             "[布局] 重置按钮右边界 %.1f 越出内容区 %.1f（预算 重置=%.1f "
                             "名称=%.1f 滑块=%.1f 数值=%.1f 可用=%.1f）→ 说明传给布局的"
                             "可用宽度不对",
@@ -691,7 +692,7 @@ bool DrawTargetParams(const std::string& targetId, Target& target, Workbench& wo
       if (UiTrace()) {
         static int traceTick = 0;
         if ((traceTick++ % 120) == 0) {
-          __android_log_print(ANDROID_LOG_INFO, kLogTag,
+          AURORA_LOG(ANDROID_LOG_INFO, kLogTag,
                               "[布局] 可用=%.0f 模式=%s 名称=%.0f 滑块=%.0f 数值=%.0f 重置=%.0f "
                               "（名称最长文本=%.0f 数值最长文本=%.0f 间距=%.0f）",
                               available, layout.twoLine ? "双行" : "单行", layout.name,
@@ -827,10 +828,10 @@ void FlushGlassWorkbench() {
   if (!workbench.presets->dirty()) return;
   std::string error;
   if (workbench.presets->Save(&error)) {
-    __android_log_print(ANDROID_LOG_INFO, kLogTag, "参数已保存：%s",
+    AURORA_LOG(ANDROID_LOG_INFO, kLogTag, "参数已保存：%s",
                         workbench.presets->Path().c_str());
   } else {
-    __android_log_print(ANDROID_LOG_WARN, kLogTag, "参数保存失败：%s", error.c_str());
+    AURORA_LOG(ANDROID_LOG_WARN, kLogTag, "参数保存失败：%s", error.c_str());
   }
 }
 
@@ -880,10 +881,10 @@ void PumpGlassWorkbenchPersistence() {
                     presets.Path().c_str(), presets.ActiveName().c_str(), skipped.size(),
                     adjusted.size());
       workbench.SetStatus(buffer);
-      __android_log_print(ANDROID_LOG_INFO, kLogTag, "%s", buffer);
+      AURORA_LOG(ANDROID_LOG_INFO, kLogTag, "%s", buffer);
     } else if (!error.empty()) {
       workbench.SetStatus("参数文件读取失败：" + error);
-      __android_log_print(ANDROID_LOG_WARN, kLogTag, "参数文件读取失败：%s", error.c_str());
+      AURORA_LOG(ANDROID_LOG_WARN, kLogTag, "参数文件读取失败：%s", error.c_str());
     } else {
       // ★ 首次运行（文件还不存在）：**主动写一份默认参数文件**。
       //   为什么值得写：它是一份**可读可改可分享**的模板 —— 用户可以自己编辑
@@ -894,7 +895,7 @@ void PumpGlassWorkbenchPersistence() {
       std::string saveError;
       if (presets.Save(&saveError)) {
         workbench.SetStatus("首次运行：已生成默认参数文件 " + presets.Path());
-        __android_log_print(ANDROID_LOG_INFO, kLogTag, "首次运行：已生成默认参数文件 %s",
+        AURORA_LOG(ANDROID_LOG_INFO, kLogTag, "首次运行：已生成默认参数文件 %s",
                             presets.Path().c_str());
       }
     }
@@ -958,7 +959,7 @@ void DrawGlassWorkbench() {
                 std::fprintf(wbFile, "WORKBENCH entered (call %d)\n", wbProbe);
                 std::fflush(wbFile);
             }
-            __android_log_print(ANDROID_LOG_INFO, "AuroraParam",
+            AURORA_LOG(ANDROID_LOG_INFO, "AuroraParam",
                                 "WORKBENCH entered (call %d)", wbProbe);
         }
     }
