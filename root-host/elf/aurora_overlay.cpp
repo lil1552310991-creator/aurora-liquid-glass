@@ -1896,6 +1896,18 @@ bool yesPhysical = false;    // 兼容旧命令行；物理屏闸门已删除，
         }
     }
 
+    // ★★ 绝对时间网格（不要用相对睡眠）。
+    //
+    //   sleep_for(1000000/renderFps) 会**累积误差**：sleep_for 实际总是多睡一点，
+    //   而且一帧渲染耗时 R 之后又固定睡一个周期 T ⇒ 实际周期 = R + T。
+    //   120Hz 时 R≈5ms、T=8.33ms ⇒ 实际 13.3ms ⇒ 只有 75fps，而且帧间隔抖动。
+    //   用户感觉到的"卡"就是这么来的（平均 FPS 还被 EMA 平滑掉了，所以看不出来）。
+    //
+    //   改成：维护绝对的下一个截止时刻，渲染耗时 R < T 时睡到 T；
+    //   R > T 时跳过一整拍（不堆积追赶 —— 追赶会让下一帧更慢）。
+    const auto frameInterval = std::chrono::nanoseconds(1000000000LL / std::max(1, renderFps));
+    auto nextDeadline = std::chrono::steady_clock::now() + frameInterval;
+
     while (g_running.load()) {
         if (renderer.graphicsFailed()) {
             logf(ANDROID_LOG_ERROR, "渲染初始化/缓冲区尺寸更新失败，停止覆盖层并清理触摸区");
@@ -2130,7 +2142,20 @@ bool yesPhysical = false;    // 兼容旧命令行；物理屏闸门已删除，
                  captureSkippedLowMem.load(), avail, ime.up() ? 1 : 0, region.left, region.top,
                  region.right, region.bottom, visibleShapeCount, lastApplied.size(), regionUpdates);
         }
-        std::this_thread::sleep_for(std::chrono::microseconds(1000000 / renderFps));
+        // ---- 帧节奏：睡到下一个绝对截止时刻 ----
+        //
+        //   · 渲染赶得上（now < deadline）：睡到 deadline，帧间隔严格等于 T；
+        //   · 渲染超时（now >= deadline）：整拍跳过，不堆积、不追赶 ——
+        //     追赶会让下一帧更慢，形成恶性循环；跳过则是"这一拍没出帧"，
+        //     画面停顿一个周期但节奏不乱，用户感知上比抖动好得多。
+        nextDeadline += frameInterval;
+        const auto afterFrame = std::chrono::steady_clock::now();
+        if (nextDeadline > afterFrame) {
+            std::this_thread::sleep_until(nextDeadline);
+        } else {
+            const auto missed = (afterFrame - nextDeadline) / frameInterval;
+            nextDeadline += frameInterval * (missed + 1);
+        }
     }
 
     // ---- 收尾（顺序重要：先收键盘再拆通道，最后才退出渲染） ----

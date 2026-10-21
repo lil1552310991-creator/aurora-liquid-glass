@@ -27,8 +27,15 @@
     <!-- 临时后台启动许可 -->
     <uses-permission android:name="android.permission.START_FOREGROUND_SERVICES_FROM_BACKGROUND" />
 
+    <!--
+      android:label 会出现在系统的「悬浮窗」提示里：
+        「<label> 正在其他应用的上层显示内容」
+      这是 Android 10+ 对 SYSTEM_ALERT_WINDOW 的**强制**提示，应用无法屏蔽 ——
+      只要本包创建了那个 1x1 宿主窗，它就会出现。所以这里必须写一个人能看懂
+      的名字，否则用户会在通知栏看到一个莫名其妙的字符串（曾经是 "dum"）。
+    -->
     <application
-        android:label="dum"
+        android:label="Aurora 输入桥接"
         android:allowBackup="false"
         android:hasCode="true"
         android:supportsRtl="false">
