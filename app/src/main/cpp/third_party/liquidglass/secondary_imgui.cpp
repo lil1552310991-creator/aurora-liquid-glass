@@ -834,8 +834,7 @@ static void DrawContents() {
               TouchLegacyLayout() ? "旧(换行)" : "新(定高)", touchPanX, touchPanY, touchScale,
               touchRot, touchRowHeightForTrace, afterRow.y);
   }
-  ImGui::Spacing();
-  ImGui::Separator();
+  // ★ 这条横线也已删除（输入区与实时信息之间不再有分隔线）。
   ImGui::Spacing();
   // ---- 内容到此为止 ----
   //
@@ -856,8 +855,7 @@ static void DrawHostDiagnostics() {
     DialogLog("[诊断] 运行时信息开画：光标=(%.0f,%.0f) 滚动=%.0f/%.0f",
               c.x, c.y, ImGui::GetScrollY(), ImGui::GetScrollMaxY());
   }
-  ImGui::Spacing();
-  ImGui::Separator();
+  // 用户要求：输入区与实时信息之间不要分隔线，两者紧挨着放在同一个位置。
   ImGui::Spacing();
   if (ImGui::CollapsingHeader(Text("Aurora 运行时信息", "Aurora runtime"),
                               ImGuiTreeNodeFlags_DefaultOpen)) {

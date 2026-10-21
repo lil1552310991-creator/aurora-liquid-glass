@@ -1017,12 +1017,35 @@ void Renderer::renderFrame() {
     IRenderBackend& rendererBackend = activeBackend();
     const auto prepareEnd = std::chrono::steady_clock::now();
     rendererBackend.resize(width, height);
+    // ★★ 后端一时没 ready **不等于**渲染坏了。
+    //
+    //   GL context 在切后台、显示模式切换、Surface 重建时会短暂失效，
+    //   resize 也可能赶在恢复之前跑一次。原来这里第一帧就直接置
+    //   graphicsFailed_ ⇒ 主循环立刻退出，用户看到的正是"跑着跑着自己关了"。
+    //
+    //   现在给约 1.5 秒的宽限：这期间不画，但主循环继续跑，让后端自己恢复。
+    //   超过宽限才判定真失败。计数在后端恢复就绪时清零。
+    static int consecutiveNotReady = 0;
     if (!rendererBackend.ready()) {
+        ++consecutiveNotReady;
+        if (consecutiveNotReady < 90) {
+            if (consecutiveNotReady == 1 || consecutiveNotReady % 30 == 0) {
+                __android_log_print(ANDROID_LOG_WARN, "Aurora",
+                                    "渲染后端暂未就绪（第 %d 帧），等待恢复",
+                                    consecutiveNotReady);
+            }
+            if (projectionHardwareBuffer) AHardwareBuffer_release(projectionHardwareBuffer);
+            if (projectionReadComplete) std::exchange(projectionReadComplete, {})();
+            return;
+        }
+        __android_log_print(ANDROID_LOG_ERROR, "Aurora",
+                            "渲染后端连续 %d 帧未就绪，判定失败", consecutiveNotReady);
         if (projectionHardwareBuffer) AHardwareBuffer_release(projectionHardwareBuffer);
         if (projectionReadComplete) std::exchange(projectionReadComplete, {})();
         graphicsFailed_.store(true, std::memory_order_release);
         return;
     }
+    consecutiveNotReady = 0;
     if (projectionSourceAlive) rendererBackend.projectionSourceAlive();
     if (!projectionRgba.empty()) {
         rendererBackend.updateProjectionFrame(projectionRgba.data(), projectionRgba.size(),

@@ -1659,14 +1659,27 @@ bool yesPhysical = false;    // 兼容旧命令行；物理屏闸门已删除，
         (void)action; (void)actionIndex;
     };
     std::thread touchThread([&] {
+        // ★★ 输入通道断开**不再退出整个覆盖层**。
+        //
+        //   pollTouches 在 read() 返回 0（EOF）时返回 -1，而对端关闭是常见的：
+        //   转屏、系统 UI 重建、切换应用都会重建窗口的 InputChannel。原来这里
+        //   直接 store(11) + break，用户看到的就是"跑着跑着自己关了"。
+        //
+        //   现在：通道断了标记一次，继续重试；画面照常渲染，只是暂时点不动。
+        int consecutiveFailures = 0;
         while (g_running.load()) {
             const int n = aospglue::pollTouches(sink, &sinkCtx);
             if (n < 0) {
-                logf(ANDROID_LOG_ERROR, "输入通道断开，停止覆盖层");
-                g_exitStatus.store(11);
-                g_running.store(false);
-                break;
+                ++consecutiveFailures;
+                if (consecutiveFailures == 1 || consecutiveFailures % 600 == 0) {
+                    logf(ANDROID_LOG_WARN,
+                         "输入通道已断开（第 %d 次）：界面继续显示，但暂时无法操作",
+                         consecutiveFailures);
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                continue;
             }
+            consecutiveFailures = 0;
             std::this_thread::sleep_for(std::chrono::milliseconds(4));
         }
     });
@@ -1675,9 +1688,9 @@ bool yesPhysical = false;    // 兼容旧命令行；物理屏闸门已删除，
     // eSkipScreenshot removes this overlay from the capture before any shader runs.
     std::thread captureThread;
     std::atomic<long long> captureFrames{0}, captureSkippedLowMem{0}, captureErrors{0}, captureErased{0};
-// 连续采集失败次数：偶发失败不退出（切游戏/分辨率变化都会让它抖一下），
-// 连续 ~2 秒都失败才认为这台设备确实采不到背景。
-std::atomic<int> captureConsecutiveFailures{0};
+    // 连续采集失败次数：偶发失败不退出（切游戏/分辨率变化都会让它抖一下），
+    // 连续 ~2 秒都失败才认为这台设备确实采不到背景。
+    std::atomic<int> captureConsecutiveFailures{0};
     std::atomic<long long> captureTotalUs{0};
     std::mutex captureErrorMutex;
     std::string captureError;

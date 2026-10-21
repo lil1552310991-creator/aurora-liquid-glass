@@ -223,53 +223,6 @@ void BindWindowTarget(Registry& registry, GlassScene& scene) {
                   "Modal 没有对应字段");
 }
 
-void BindGapTarget(Registry& registry) {
-    TargetDesc desc;
-    desc.id = "secondary_window.capability_gaps";
-    desc.name = "能力缺口总表";
-    desc.type = "Gaps";
-    desc.window = "secondary";
-    desc.parent = "secondary_window";
-    desc.order = 1000;
-    desc.note = "参考项目有、本实现没有（或不适合实时调）的能力 —— 只读 + 原因，不做假控件";
-    TargetBuilder b(registry, desc);
-    if (!b.created()) return;
-    b.Group("参考项目能力对照（Kyant AndroidLiquidGlass 2.0.1）");
-    b.Unsupported("gapCombinedBackdrop", "CombinedBackdrop 多背景源", "CombinedBackdrop",
-                  "参考项目用 rememberCombinedBackdrop 把多个来源按顺序画进同一画布。"
-                  "本机是「进程内 Z 序合成 + 单一采集源」（docs/GLASS_ZORDER_COMPOSITOR.md），"
-                  "要做到等价需要在采集层支持多次采样并合并");
-    b.Unsupported("gapLayerBlock", "layerBlock 任意变换", "layerBlock",
-                  "参考项目的 layerBlock 支持 scale/rotationZ/transformOrigin 并会走"
-                  "InverseLayerScope 逆变换；ytbl 的面板只接受轴对齐矩形 + uStretchScale");
-    b.Unsupported("gapRuntimeShader", "runtimeShaderEffect 自定义着色器", "runtimeShaderEffect",
-                  "参考项目要 API 33 的 RuntimeShader；本机是预编译 GLES 程序，"
-                  "接入需要把 shader 源做成运行时可注入（当前 shaders 是编译期字符串常量）");
-    b.Unsupported("gapExposure", "exposureAdjustment", "exposureAdjustment",
-                  "只在参考项目 1.0.6 存在（2.0.1 已移除）：ColorMatrix scale = 2^(ev/2.2)。"
-                  "本实现的 tone 只有 brightness/contrast/saturation");
-    b.Unsupported("gapGamma", "gammaAdjustment", "gammaAdjustment",
-                  "同上，只有 1.0.6：shader 里 pow(color.rgb, power)。"
-                  "接入需要在片元着色器新增 uniform + 一次 pow（约 3 行）");
-    b.Unsupported("gapHighlightBlend", "Highlight BlendMode", "blendMode",
-                  "参考项目的 HighlightStyle 带 BlendMode.Plus / SrcOver；"
-                  "ytbl 的边光是固定加法（uEdgeMode 只切换形状配方，不切换混合）");
-    b.Unsupported("gapOnDrawSurface", "onDrawSurface 任意绘制回调", "onDrawSurface",
-                  "参考项目允许在玻璃表面与内容之间插入任意 DrawScope 绘制；"
-                  "ytbl 用 PanelStyle::surface + SurfaceMode 表达固定几种情况");
-    b.Unsupported("gapSquircle", "连续曲率圆角（squircle）", "continuousCorner",
-                  "参考项目用 com.kyant.shapes 的 ContinuousCapsule/RoundedRectangularShape；"
-                  "ytbl 的圆角 SDF 是标准圆角，需要改 shader");
-    b.Group("平台限制（不是缺口）");
-    b.Unsupported("noteBlurCap", "模糊上限 10dp", "blurCap",
-                  "BLUR_RADIUS_MAX_DP = 10dp 是 ytbl 的硬上限（不是没做，是会被截断）");
-    b.Unsupported("noteAmbientAngle", "Ambient 的角度/衰减无效", "ambientAngle",
-                  "shader 的 Ambient 分支只读 alpha/tint/band，不读 uEdgeAngle/uEdgeFalloff"
-                  "（参考项目的 Ambient 也把 angle/falloff 硬编码成 45/1.0）");
-    b.Unsupported("noteSpread", "阴影没有 spread", "spread",
-                  "参考项目与本实现都没有 spread 参数");
-}
-
 // -----------------------------------------------------------------------------
 // 窗口缩放方式 + 虚线预览/填充动画参数
 //
@@ -399,7 +352,7 @@ void RegisterSecondaryTargets() {
     //   保留：整窗口（窗口壳的玻璃配方）、窗口缩放、窗口间隙。
     BindWindowTarget(registry, scene);
     BindResizeTarget(registry);
-    BindGapTarget(registry);
+    // 「能力缺口总表」分页按要求删除（它只是一张说明表，没有可调参数）。
 }
 
 }  // namespace glass

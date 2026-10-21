@@ -743,117 +743,6 @@ struct PagedBarResult {
   int selected = 0;
 };
 
-PagedBarResult DrawPagedBar(Workbench& workbench,
-                            const std::vector<const Target*>& pages) {
-  PagedBarResult result;
-  result.selected = workbench.page;
-  if (pages.empty()) return result;
-
-  static float scrollX = 0.0f;
-  static float scrollTargetX = -1.0f;
-
-  const ImGuiStyle& style = ImGui::GetStyle();
-  const float barHeight = ImGui::GetFrameHeight() + 12.0f;
-  // ★ 翻页按钮的宽度按**文字真实宽度**算：本工程字体是 2 倍缩放的中文字形，
-  //   "上一页"三个字 ≈ 96px，写死 44px 会把它切成一个字（真机截图确认过）。
-  //   同时给一个下限，保证触摸目标不小于 44px。
-  const float arrowWidth =
-      ImGui::CalcTextSize("上一页").x + style.FramePadding.x * 2.0f + 8.0f;
-  const float trackWidth = ImGui::GetContentRegionAvail().x - arrowWidth * 2.0f - style.ItemSpacing.x * 2.0f;
-  const ImVec2 origin = ImGui::GetCursorScreenPos();
-
-  auto entryWidth = [&](const Target* target) {
-    char label[160];
-    std::snprintf(label, sizeof(label), "%s", target->desc.name.c_str());
-    return ImGui::CalcTextSize(label).x + style.FramePadding.x * 2.0f + 24.0f;
-  };
-
-  // 总宽度（用于夹紧滚动偏移）
-  float total = 0.0f;
-  for (const Target* target : pages) total += entryWidth(target) + style.ItemSpacing.x;
-  const float maxScroll = total > trackWidth ? total - trackWidth : 0.0f;
-
-  // 自动把选中项滚进可视区
-  if (scrollTargetX >= 0.0f) {
-    float offset = 0.0f;
-    for (int i = 0; i < static_cast<int>(pages.size()); ++i) {
-      const float width = entryWidth(pages[static_cast<std::size_t>(i)]) + style.ItemSpacing.x;
-      if (i == result.selected) {
-        const float left = offset;
-        const float right = offset + width;
-        if (left < scrollX) scrollX = left;
-        else if (right > scrollX + trackWidth) scrollX = right - trackWidth;
-        break;
-      }
-      offset += width;
-    }
-    scrollTargetX = -1.0f;
-  }
-  scrollX = scrollX < 0.0f ? 0.0f : (scrollX > maxScroll ? maxScroll : scrollX);
-
-  // ---- 左翻页 ----
-  ImGui::SetCursorScreenPos(origin);
-  if (ImGui::Button("上一页", ImVec2(arrowWidth, barHeight))) {
-    result.selected = result.selected > 0 ? result.selected - 1 : 0;
-    scrollTargetX = 0.0f;
-  }
-
-  // ---- 标题轨道（自己裁剪，不用子窗口：子窗口会吃掉触摸事件）----
-  ImGui::PushClipRect(ImVec2(origin.x + arrowWidth + style.ItemSpacing.x, origin.y),
-                      ImVec2(origin.x + arrowWidth + style.ItemSpacing.x + trackWidth,
-                             origin.y + barHeight),
-                      true);
-  float x = origin.x + arrowWidth + style.ItemSpacing.x - scrollX;
-  for (int i = 0; i < static_cast<int>(pages.size()); ++i) {
-    const Target* target = pages[static_cast<std::size_t>(i)];
-    const float width = entryWidth(target);
-    if (x + width >= origin.x + arrowWidth + style.ItemSpacing.x &&
-        x <= origin.x + arrowWidth + style.ItemSpacing.x + trackWidth) {
-      ImGui::SetCursorScreenPos(ImVec2(x, origin.y + 6.0f));
-      ImGui::PushID(i);
-      const bool active = (i == result.selected);
-      if (active) {
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.20f, 0.52f, 1.0f, 0.85f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.24f, 0.58f, 1.0f, 0.95f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.16f, 0.46f, 0.92f, 1.0f));
-      } else {
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(1.0f, 1.0f, 1.0f, 0.08f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.0f, 1.0f, 1.0f, 0.16f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1.0f, 1.0f, 1.0f, 0.22f));
-      }
-      if (ImGui::Button(target->desc.name.c_str(), ImVec2(width, ImGui::GetFrameHeight()))) {
-        result.selected = i;
-        scrollTargetX = 0.0f;
-      }
-      ImGui::PopStyleColor(3);
-      ImGui::PopID();
-    }
-    x += width + style.ItemSpacing.x;
-  }
-  ImGui::PopClipRect();
-
-  // 鼠标滚轮在标题条上横向滚动（触摸设备用左右按钮，PC 调试用滚轮）
-  if (ImGui::IsWindowHovered() && ImGui::GetIO().MouseWheel != 0.0f) {
-    scrollX -= ImGui::GetIO().MouseWheel * 60.0f;
-  }
-
-  // ---- 右翻页 ----
-  ImGui::SetCursorScreenPos(ImVec2(origin.x + arrowWidth + style.ItemSpacing.x + trackWidth +
-                                       style.ItemSpacing.x,
-                                   origin.y));
-  if (ImGui::Button("下一页", ImVec2(arrowWidth, barHeight))) {
-    result.selected = result.selected + 1 < static_cast<int>(pages.size()) ? result.selected + 1
-                                                                          : result.selected;
-    scrollTargetX = 0.0f;
-  }
-  // 把游标放回标题条下方，后续控件从这里继续排
-  ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + barHeight + style.ItemSpacing.y));
-
-  // 触摸友好提示：当前是第几个 / 共几个
-  ImGui::TextDisabled("第 %d / %zu 个调试对象", result.selected + 1, pages.size());
-  return result;
-}
-
 // -----------------------------------------------------------------------------
 // 诊断面板（默认关闭 ⇒ 零成本；打开后才读值）
 // -----------------------------------------------------------------------------
@@ -1090,270 +979,43 @@ void DrawGlassWorkbench() {
   PumpGlassWorkbenchPersistence();
 
 
-  // ---- 顶部：全局操作 ----
-  {
-    // 悬停提示要在点之前就告诉用户"这一步会撤掉什么"
-    const bool canUndo = history.CanUndo();
-    const std::string undoLabel = history.LastLabel();
-    if (!canUndo) ImGui::BeginDisabled();
-    if (ImGui::Button("撤销")) history.Undo();
-    if (!canUndo) ImGui::EndDisabled();
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
-      if (canUndo) ImGui::SetTooltip("撤销：%s", undoLabel.c_str());
-      else ImGui::SetTooltip("没有可撤销的操作（拖一次滑块只算一步）");
-    }
-  }
-  SameLineOrWrap("重做");
-  {
-    const bool canRedo = history.CanRedo();
-    const std::string redoLabel = history.NextLabel();
-    if (!canRedo) ImGui::BeginDisabled();
-    if (ImGui::Button("重做")) history.Redo();
-    if (!canRedo) ImGui::EndDisabled();
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
-      if (canRedo) ImGui::SetTooltip("重做：%s", redoLabel.c_str());
-      else ImGui::SetTooltip("没有可重做的操作");
-    }
-  }
-  SameLineOrWrap("保存全部参数");
-  if (ImGui::Button("保存全部参数")) {
-    // ★ 不去覆盖「默认」预设：那个名字的语义是"注册时的默认值"（隐式的），
-    //   把它写成当前值会让"恢复默认"再也回不去。
-    //   导出时文件里那份「当前工作区」预设已经携带了屏幕上的值 ⇒ 保存不会丢东西。
-    std::string error;
-    presets.MarkDirty();
-    if (presets.Save(&error)) {
-      workbench.SetStatus("已保存全部参数：" + presets.Path());
-    } else {
-      workbench.SetStatus("保存失败：" + error);
-    }
-  }
-  SameLineOrWrap("重新载入");
-  if (ImGui::Button("重新载入")) {
-    std::string error;
-    if (presets.Load(&error)) {
-      std::vector<std::string> skipped;
-      presets.ApplyPreset(presets.ActiveName(), &skipped, nullptr);
-      registry.Commit();
-      workbench.SetStatus("已重新载入：" + presets.Path());
-    } else {
-      workbench.SetStatus(error.empty() ? "文件不存在，无需载入" : "载入失败：" + error);
-    }
-  }
-  SameLineOrWrap("诊断");
-  ImGui::Checkbox("诊断", &workbench.showDiagnostics);
-  SameLineOrWrap("显示缺口");
-  ImGui::Checkbox("显示缺口", &workbench.showGaps);
-  if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
-    ImGui::SetTooltip("显示每个目标的「参考项目有、本实现没有」的能力（只读 + 原因）");
-  }
-
-  // ---- 全局重置 / 预设 / 导入导出 / A-B ----
-  if (ImGui::Button("全部恢复默认")) {
-    history.BeginBatch("全部恢复默认");
-    registry.ResetAll(ChangeOrigin::Reset);
-    history.EndBatch();
-    registry.Commit();
-    workbench.SetStatus("已把全部玻璃参数恢复为组件注册时的默认值");
-  }
-  SameLineOrWrap("导出参数文本");
-  if (ImGui::Button("导出参数文本")) {
-    std::snprintf(workbench.ioPath, sizeof(workbench.ioPath), "%s", presets.Path().c_str());
-    std::string error;
-    const std::string text = presets.ExportText();
-    if (SaveTextAtomic(workbench.ioPath, text, &error)) {
-      char buffer[256];
-      std::snprintf(buffer, sizeof(buffer), "已导出 %zu 字节到 %s", text.size(),
-                    workbench.ioPath);
-      workbench.SetStatus(buffer);
-    } else {
-      workbench.SetStatus("导出失败：" + error);
-    }
-  }
-  SameLineOrWrap("导入参数文本");
-  if (ImGui::Button("导入参数文本")) {
-    std::string text;
-    std::string error;
-    if (!ReadTextFile(workbench.ioPath, &text, &error)) {
-      workbench.SetStatus("导入失败：" + error);
-    } else {
-      ImportReport report;
-      if (presets.ImportText(text, &report, true)) {
-        std::vector<std::string> skipped;
-        std::vector<std::string> adjusted;
-        presets.ApplyPreset(presets.ActiveName(), &skipped, &adjusted);
-        registry.Commit();
-        char buffer[288];
-        std::snprintf(buffer, sizeof(buffer),
-                      "已导入：现有预设 %zu 个，跳过 %zu 项，夹紧 %zu 项，源版本 v%d%s",
-                      presets.Count(), skipped.size(), adjusted.size(),
-                      report.sourceVersion, report.migratedFrom != 0 ? "（经过旧版迁移）" : "");
-        workbench.SetStatus(buffer);
-      } else {
-        workbench.SetStatus("导入失败：" + report.error);
-      }
-    }
-  }
-
-  // 预设选择
-  {
-    ImGui::SetNextItemWidth(200.0f);
-    std::string current = presets.ActiveName();
-    if (ImGui::BeginCombo("预设", current.c_str())) {
-      for (std::size_t i = 0; i < presets.Count(); ++i) {
-        const bool selected = presets.At(i).name == current;
-        ImGui::PushID(static_cast<int>(i));
-        if (ImGui::Selectable(presets.At(i).name.c_str(), selected)) {
-          history.BeginBatch("应用预设：" + presets.At(i).name);
-          std::vector<std::string> skipped;
-          std::vector<std::string> adjusted;
-          presets.ApplyPreset(presets.At(i).name, &skipped, &adjusted);
-          history.EndBatch();
-          registry.Commit();
-          char buffer[224];
-          std::snprintf(buffer, sizeof(buffer), "已应用预设「%s」（跳过 %zu 项，夹紧 %zu 项）",
-                        presets.At(i).name.c_str(), skipped.size(), adjusted.size());
-          workbench.SetStatus(buffer);
-        }
-        ImGui::PopID();
-      }
-      ImGui::EndCombo();
-    }
-    SameLineOrWrap("新预设名");
-    ImGui::SetNextItemWidth(160.0f);
-    ImGui::InputTextWithHint("##presetname", "新预设名", workbench.presetName,
-                             sizeof(workbench.presetName));
-    SameLineOrWrap("另存为预设");
-    if (ImGui::Button("另存为预设")) {
-      if (workbench.presetName[0] == 0) {
-        workbench.SetStatus("请先填一个预设名");
-      } else if (presets.CaptureAs(workbench.presetName, true)) {
-        std::string error;
-        presets.Save(&error);
-        workbench.SetStatus(std::string("已保存预设「") + workbench.presetName + "」");
-      }
-    }
-  }
-
-  // A/B 对比
-  {
-    if (ImGui::Button("存为 A")) {
-      workbench.slotA = registry.Capture();
-      workbench.hasA = true;
-      workbench.SetStatus("已记录当前参数为 A");
-    }
-    SameLineOrWrap("存为 B");
-    if (ImGui::Button("存为 B")) {
-      workbench.slotB = registry.Capture();
-      workbench.hasB = true;
-      workbench.SetStatus("已记录当前参数为 B");
-    }
-    SameLineOrWrap("切到 A");
-    if (!workbench.hasA) ImGui::BeginDisabled();
-    if (ImGui::Button("切到 A")) {
-      history.BeginBatch("切到 A");
-      registry.Apply(workbench.slotA, ChangeOrigin::Preset, nullptr);
-      history.EndBatch();
-      registry.Commit();
-      workbench.SetStatus("已切到 A");
-    }
-    if (!workbench.hasA) ImGui::EndDisabled();
-    SameLineOrWrap("切到 B");
-    if (!workbench.hasB) ImGui::BeginDisabled();
-    if (ImGui::Button("切到 B")) {
-      history.BeginBatch("切到 B");
-      registry.Apply(workbench.slotB, ChangeOrigin::Preset, nullptr);
-      history.EndBatch();
-      registry.Commit();
-      workbench.SetStatus("已切到 B");
-    }
-    if (!workbench.hasB) ImGui::EndDisabled();
-    if (workbench.hasA && workbench.hasB) {
-      std::size_t diff = 0;
-      for (const SnapshotEntry& entry : workbench.slotA.entries) {
-        const SnapshotEntry* other = workbench.slotB.Find(entry.target, entry.param);
-        if (other == nullptr || !other->value.Equals(entry.value)) ++diff;
-      }
-      SameLineOrWrap("A/B 差异");
-      ImGui::TextDisabled("A/B 差异 %zu 项", diff);
-    }
-  }
-
-  if (!workbench.status.empty()) {
-    ImGui::TextDisabled("%s", workbench.status.c_str());
-  }
-
-  ImGui::Separator();
-
-  // ---- 检索：目标/参数一多就找不到，所以留一个关键词入口 ----
-  ImGui::SetNextItemWidth(220.0f);
-  if (ImGui::InputTextWithHint("##search", "搜索组件或参数（例如 折射 / toggle / blur）",
-                               workbench.search, sizeof(workbench.search))) {
-    workbench.page = 0;
-  }
-  SameLineOrWrap("只看结果");
-  ImGui::Checkbox("只看结果", &workbench.searchActive);
-  if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
-    ImGui::SetTooltip("把分页栏限制成搜索结果（默认关：分页栏始终显示全部对象）");
-  }
-
-  // ---- 分页栏 ----
-  // 分页对象 = 顶层目标（parent == secondary_window）；子层在页面内用一排按钮选择。
-  // 这样分页数量可控，又不会漏掉任何子层（它们都是注册表里的独立目标）。
+  // ★★ 主机区只保留一件事：调试「整窗口」的参数。
   //
-  // ★★ 必须**同时**收录根目标本身（id == "secondary_window"）。
+  //   这里原来有 20 多个控件：撤销/重做、保存全部参数、重新载入、诊断、显示缺口、
+  //   全部恢复默认、导入/导出参数文本、预设下拉、新建/另存为预设、存为 A/B、
+  //   切到 A/B、搜索组件、只看结果、目标下拉、全部展开/全部收起。
   //
-  //   根目标 `BindWindowTarget` 的 desc.id 就是 "secondary_window"，它的 desc.parent
-  //   是空串。原来只按 `parent == "secondary_window"` 筛选，于是"整窗口"这一页
-  //   **从来没有出现在分页栏里** —— 用户能看到的第一个分页是"液态玻璃卡片"。
-  //   后果：所有想调"整个窗口的圆角/模糊/折射"的尝试，实际拖的都是卡片或按钮，
-  //   窗口一个字节都没变（实测：BuildWindowStyle 的 cornerDp 恒为默认 28.000，
-  //   而 PanelTune 的值在 16/24/64/96 之间乱跳）。
-  std::vector<const Target*> pages;
-  if (workbench.searchActive && workbench.search[0] != 0) {
-    for (const Target* target : registry.Search(workbench.search)) pages.push_back(target);
-  } else {
-    for (std::size_t index : registry.DisplayOrder()) {
-      const Target& target = registry.TargetAt(index);
-      if (target.desc.parent == "secondary_window" ||
-          target.desc.id == "secondary_window") {
-        pages.push_back(&target);
-      }
-    }
-  }
-  if (pages.empty()) {
-    ImGui::TextDisabled("没有匹配的调试对象");
+  //   用户要求全部删除 —— 现在组件只剩窗口本身，预设/存 A/B/搜索这些针对
+  //   "多组件调试"的功能已经没有意义，留着只是让界面堆满按钮。
+  //   参数仍然自动落盘（PumpGlassWorkbenchPersistence 会去抖保存），
+  //   所以"保存/恢复"这件事并不需要用户手动点。
+
+  // 只剩「整窗口」一个调试目标 ⇒ 不需要分页栏，直接就是它。
+  if (registry.TargetCount() == 0) {
+    ImGui::TextDisabled("没有可调试的目标");
     return;
   }
-  if (workbench.page >= static_cast<int>(pages.size())) workbench.page = 0;
-
-  // ★ 目标快速跳转下拉：分页栏是横向滚动的，目标一多就得来回滑才能找到。
-  //   这里给一个纯文本列表，按类别名直接跳，比滑动手势可靠得多。
-  {
-    const Target* current = pages[static_cast<std::size_t>(workbench.page)];
-    ImGui::SetNextItemWidth(-1.0f);
-    if (ImGui::BeginCombo("##target_jump", current->desc.name.c_str())) {
-      for (int i = 0; i < static_cast<int>(pages.size()); ++i) {
-        const bool selected = (i == workbench.page);
-        char label[192];
-        std::snprintf(label, sizeof(label), "%s  ·  %s", pages[static_cast<std::size_t>(i)]->desc.name.c_str(),
-                      pages[static_cast<std::size_t>(i)]->desc.id.c_str());
-        if (ImGui::Selectable(label, selected)) workbench.page = i;
-        if (selected) ImGui::SetItemDefaultFocus();
-      }
-      ImGui::EndCombo();
-    }
-    // 一键展开 / 收起：60+ 条滑块的页面上，逐个点折叠头太累。
-    if (ImGui::Button("全部展开")) workbench.openAllRequest = 1;
-    ImGui::SameLine();
-    if (ImGui::Button("全部收起")) workbench.openAllRequest = 2;
-  }
-
-  const PagedBarResult bar = DrawPagedBar(workbench, pages);
-  workbench.page = bar.selected;
-  const Target* page = pages[static_cast<std::size_t>(workbench.page)];
+  const Target* page = &registry.TargetAt(0);
   Target* target = registry.MutableTarget(page->desc.id);
-  // ★ 把"当前调试的是谁"告诉高亮模块，它会在屏幕上那个组件周围画取景框。
+  // ★ 把"当前调试的是谁"告诉高亮模块，它会在窗口周围画四角取景框。
+  // ★★ 「调整窗口」开关。
+  //
+  //   用户要求：只有在这里**主动开启**时，屏幕上才显示那个"正在调试"的四角取景框。
+  //   关掉时整块屏幕干干净净，不留任何调试痕迹。
+  //
+  //   默认关闭：刚打开面板的人先看到的是真实效果，而不是一堆调试框。
+  static bool adjustWindow = false;
+  ImGui::Checkbox("调整窗口", &adjustWindow);
+  ImGui::SameLine();
+  ImGui::TextDisabled(adjustWindow ? "（屏幕上已显示取景框）" : "（开启后在屏幕上标出窗口四角）");
+  ImGui::Spacing();
+  ImGui::Separator();
+  ImGui::Spacing();
+
+  aurora::glass::debughl::SetAdjustMode(adjustWindow);
+  // 开关打开时才把"当前调试的是谁"告诉高亮模块 —— 关掉时清空目标，
+  // 让 TryMarkRect 直接返回 false（省掉每帧的矩形计算）。
+  aurora::glass::debughl::SetDebugTarget(adjustWindow ? page->desc.id.c_str() : nullptr);
   //   放在这里而不是 DrawTargetParams 里：翻页时要立刻更新，不能等到参数行绘制。
   aurora::glass::debughl::SetDebugTarget(page->desc.id.c_str());
 
