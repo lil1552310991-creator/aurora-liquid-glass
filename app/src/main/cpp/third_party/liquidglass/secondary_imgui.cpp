@@ -2,6 +2,7 @@
 #include "secondary_imgui.h"
 #include "glass/DebugHighlight.h"
 #include "UiLayout.h"
+#include "SoftKeyboard.h"   // 自绘键盘（零 APK）
 
 #include "ytbl/GlassUI.h"
 #include "PanelGestures.h"        // 手势内核（纯逻辑，离线回归见 tests/PanelGesturesTest.cpp）
@@ -744,6 +745,12 @@ static void DrawContents() {
   // 记下输入框的 ID：下一帧设置 ReloadUserBuf 要用它（label 随语言变，不能写死）
   g_ImeInputId = ImGui::GetItemID();
   s_WantsTextInput = ImGui::IsItemActive();
+  // ★★ 自绘键盘：输入框一旦获得焦点就弹出（不再拉起系统输入法）。
+  //   这条链路里没有任何 Java / APK —— 按键直接写进 ImGui 的输入队列，
+  //   InputText 自己的光标、选区、undo 全部照常工作。
+  //   为什么要这样：系统输入法必须有 WMS 窗口做焦点目标，而窗口只能来自
+  //   已安装的 APK（app_process 进程不在 AMS 的 mProcessMap 里）。
+  if (ImGui::IsItemActive()) aurora::softkb::RequestShow();
   ImGui::Text("%s %u", Text("活动触点", "Active pointers"),
               static_cast<unsigned int>(s_HostInfo.activePointers));
   // ★★★ 触控数据行（用户报的"只要触摸窗口，整个窗口就不停抽搐"）
@@ -1718,6 +1725,10 @@ void Draw() {
     aurora::CornerResizeDrawPreview(s_CornerResize, window, WindowCornerRadiusPx());
   }
   ImGui::End();
+
+  // ★ 自绘键盘画在**所有窗口之后**：它在屏幕底部，不属于任何窗口。
+  //   用前景 draw list 画键面，按键直接写进 ImGui 输入队列。
+  aurora::softkb::Draw();
 }
 
 // ★★ 旧的 Draw*Controls / DrawHostControls 已经**整体删除**。

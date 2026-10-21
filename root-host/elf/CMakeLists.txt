@@ -33,7 +33,7 @@ add_compile_options(-ffp-contract=off)
 
 set(AURORA_CPP_DIR  ${CMAKE_CURRENT_SOURCE_DIR}/../../app/src/main/cpp)
 set(RECON_DIR       ${CMAKE_CURRENT_SOURCE_DIR}/../../build/recon)
-set(IME_BRIDGE_DIR  ${CMAKE_CURRENT_SOURCE_DIR}/../../ime-bridge/build)
+    # (ime-bridge 已删除：不再有 APK 或 Java 组件)
 
 # -----------------------------------------------------------------------------
 # 主程序：液态玻璃演示
@@ -50,20 +50,12 @@ target_compile_options(aurora_demo PRIVATE -Wall -Wextra -Werror=return-type)
 target_link_libraries(aurora_demo PRIVATE EGL GLESv3 log dl)
 
 # -----------------------------------------------------------------------------
-# 输入法桥接自检（含内嵌 APK）
+# 输入法自检工具（ime_probe）已删除。
 #
-# 只做「释放 APK + 引导 app_process + 等 READY」，用来分步定位输入法问题。
-# 它与 aurora_demo 分开，是因为输入法失败原因很多（装包、悬浮窗权限、
-# 焦点），单独一个可跑的探针比在大程序里猜要快。
+#   它专职做「释放内嵌 APK + 引导 app_process + 等 READY」的分步定位，
+#   而那条链路整体被移除了（项目里不允许任何 APK）。输入现在由
+#   app/src/main/cpp/SoftKeyboard.cpp 的自绘键盘承担，无需外部进程。
 # -----------------------------------------------------------------------------
-add_executable(ime_probe ${RECON_DIR}/ime_probe.cpp)
-target_include_directories(ime_probe PRIVATE
-    ${AURORA_CPP_DIR}
-    ${IME_BRIDGE_DIR})    # AuroraImeApk.h
-target_compile_features(ime_probe PRIVATE cxx_std_20)
-target_compile_options(ime_probe PRIVATE -Wall -Wextra -Werror=return-type)
-target_link_libraries(ime_probe PRIVATE log dl)
-
 # -----------------------------------------------------------------------------
 # 触摸盾验证工具
 #
@@ -167,6 +159,7 @@ add_library(aurora_glass_ui STATIC
     ${AURORA_CPP_DIR}/ScreenRecorder.cpp
     # --- Liquid Glass Inspector（组件注册表 + 调试工作台 + 各组件参数绑定）---
     ${ELF_GLASS_INSPECTOR_SOURCES}
+    ${AURORA_CPP_DIR}/SoftKeyboard.cpp
     ${AURORA_CPP_DIR}/GlassWorkbench.cpp
     ${AURORA_CPP_DIR}/GlassTargets.cpp
     # 右下角长按缩放的可复用接线（主窗口与二级窗口共用同一套内核/手柄/震动）
@@ -227,7 +220,7 @@ add_dependencies(aurora_glass_ui imgui_vulkan)
 add_executable(aurora_overlay aurora_overlay.cpp RealtimeCapture.cpp)
 target_include_directories(aurora_overlay PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}   # aosp_glue.h
-    ${IME_BRIDGE_DIR})            # AuroraImeApk.h（被 InputBridge.h 在 namespace 内 include）
+    ${AURORA_CPP_DIR})            # InputBridge.h 已删除；这里保留是为了将来的头文件
 target_compile_features(aurora_overlay PRIVATE cxx_std_20)
 target_compile_options(aurora_overlay PRIVATE
     -ffp-contract=off -Wall -Wextra -Werror=return-type)
@@ -240,7 +233,3 @@ target_link_libraries(aurora_overlay PRIVATE aurora_glass_ui)
 # -----------------------------------------------------------------------------
 set_target_properties(aurora_demo inputshield_test aurora_overlay PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
-if(TARGET ime_probe)
-    set_target_properties(ime_probe PROPERTIES
-        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
-endif()

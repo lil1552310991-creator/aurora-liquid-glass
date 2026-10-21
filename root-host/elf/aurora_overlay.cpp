@@ -40,7 +40,7 @@
 #include "FrameStats.h"
 #include "GestureRouter.h"
 #include "HostProtocol.h"
-#include "InputBridge.h"
+// #include "InputBridge.h"   —— 已删除：不再有 APK / TCP 桥接
 #include "ImeTextDiff.h"     // 回填文本 ↔ 输入框 的换算（纯逻辑，有离线回归）
 #include "InputRouter.h"
 #include "LiquidGlassRuntime.h"   // LiquidGlassRegion(): diagnostics / legacy CPU erase bounds
@@ -99,7 +99,7 @@ constexpr size_t kScreencapHeaderBytes = 16;
 constexpr long long kMinAvailableKbToCapture = 1400LL * 1024LL;
 
 std::atomic<bool> g_running{true};
-std::atomic<bool> g_imeUp{false};
+[[maybe_unused]] std::atomic<bool> g_imeUp{false};   // 自绘键盘不产生系统输入法状态
 std::atomic<int> g_exitStatus{0};
 
 long long nowMs() {
@@ -696,207 +696,47 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// 输入法桥接：只在 UI 真的要文字输入时才拉起；退出时收起并卸载辅助包。
+// 输入法：已改为**自绘键盘**（见 app/src/main/cpp/SoftKeyboard.cpp）。
+//
+// ★★ 这里原来是 ImeHost —— 一整套系统输入法桥接：把内嵌的辅助 APK 释放到
+//    /data/adb、pm install 安装成临时应用、am start-service 拉起里面的 Service、
+//    再通过 127.0.0.1 回环 TCP 双向同步文本。
+//
+//    删除原因（用户明确的硬要求）：这个项目里不允许出现任何 APK。
+//
+//    为什么不能改成"只释放 dex、app_process 直接建窗口"：app_process 起的进程
+//    不在 AMS 的 mProcessMap 里，WMS 会拒绝给它窗口（Session 的 PID 门禁，
+//    见原 ime-bridge/Main.java 的注释）。没有窗口就没有输入焦点，就拉不起
+//    系统输入法。这是框架层的硬约束，绕不过去。
+//
+//    现在的做法：键盘由 ImGui 自己画在屏幕底部，按键直接写进 ImGui 的输入
+//    队列（io.AddInputCharacter / AddKeyEvent），InputText 的光标、选区、
+//    undo 全部照常工作。整条链路零 Java、零 APK、零外部进程。
+//
+//    能力边界：英文/数字/符号完整；中文需要拼音引擎与词库，本项目不内置。
 // ---------------------------------------------------------------------------
-class ImeHost final : public aurora::ImeCallbacks {
+class ImeHost final {
 public:
-    void attach(aurora::Renderer* renderer, int display) {
-        renderer_ = renderer;
-        bridge_.setCallbacks(this);
-        bridge_.setDisplay(display);
-        bridge_.setTempRoot("/data/adb");
-        // 回填明细（退格几次、插入多少字节）默认不打：正常打字一秒能来好几条，
-        // 会淹没真正要看的状态转换日志。AURORA_IME_TRACE=1 才打开。
-        if (const char* t = std::getenv("AURORA_IME_TRACE"); t != nullptr && t[0] == '1') {
-            imeTrace_ = true;
-        }
-    }
+    // 保留这些方法名是为了让主循环的调用点保持原样（现在都是空操作）。
+    void attach(aurora::Renderer* renderer, int /*display*/) { renderer_ = renderer; }
+    void warmUpBegin() {}
+    void warmUpPoll() {}
+    bool ensureUp() { return true; }
+    bool show(int /*session*/) { return true; }
+    void hide() {}
+    void pump() {}
+    void shutdown() {}
+    bool up() const { return false; }
+    const char* lastError() const { return ""; }
 
-    bool ensureUp() {
-        if (up_) return true;
-        // ★★ 如果预热已经在路上（冷启动后半段正在被主循环逐帧推进），
-        //    这里就把剩下的几步同步走完 —— 绝**不**从头再 open 一次：
-        //    重复 extractApk/spawnBridge 会白等一遍，还会留下第二个桥接进程。
-        if (warming_) {
-            while (warming_) {
-                warmUpPoll();
-                if (!warming_) break;
-                ::usleep(2000);
-            }
-            if (up_) return true;
-            // 预热失败 ⇒ 落到下面的完整路径重试一次（失败原因已由 warmUpPoll 打过）
-        }
-        const long long t0 = nowMs();
-        if (!bridge_.open()) {
-            logf(ANDROID_LOG_ERROR, "输入法桥接 open 失败: %s", bridge_.lastError());
-            bridge_.close();            // ★ 必须：open() 失败时 sock_ 会泄漏，ready() 会假 true
-            return false;
-        }
-        up_ = true;
-        g_imeUp.store(true);
-        logf(ANDROID_LOG_INFO, "输入法桥接已就绪，用时 %lldms 临时目录=%s",
-             nowMs() - t0, bridge_.tempDir().c_str());
-        return true;
-    }
+    // 键盘收起事件只会来自系统输入法；自绘键盘不产生这个事件。
+    // 保留接口是因为主循环要用它来复位"输入框焦点"，逻辑仍然有意义。
+    bool consumeHiddenEvent() { return false; }
 
-    /**
-     * ★★★ 启动期**预热**（用户报的"重启后前几次点击要等好几秒"的根因修复）
-     *
-     *  实测根因：拉桥接分四步，前三步（写 APK / 建监听 / fork 桥接进程）通常 < 100ms，
-     *  而第四步"等 Java 侧 pm install + am start-service + TCP 连回"要 **1.5~2.5 秒**
-     *  （仓库内已有实测：`research/ime_result.md` 1475ms、`research/ime_physical_run/README.md` 2449ms）。
-     *  旧代码把整条 `open()` 放在**用户第一次点输入框**的那次 `show()` 里同步执行
-     *  ⇒ 用户看到的就是"点一下，几秒后才出键盘"。
-     *
-     *  现在把它挪到主循环启动后（窗口已经在屏幕上）**逐帧非阻塞推进**：
-     *    · `warmUpBegin()` 只做快的前三步（不阻塞、无感）；
-     *    · `warmUpPoll()` 每帧推进一小步（`pump(0)`/`poll(0)`，永不等）；
-     *    · 全程**只建窗、不发 SHOW** ⇒ 不会在启动时主动弹键盘（用户要求）。
-     *  这样用户第一次点击时桥接通常已经 READY，`ensureUp()` 直接命中 `up_` 快路径。
-     */
-    void warmUpBegin() {
-        if (up_ || warming_) return;
-        if (!bridge_.beginOpen()) {
-            logf(ANDROID_LOG_WARN, "输入法桥接预热（前三步）失败: %s", bridge_.lastError());
-            return;
-        }
-        warming_ = true;
-        warmStartMs_ = nowMs();
-    }
-
-    void warmUpPoll() {
-        if (!warming_) return;
-        const int r = bridge_.openPoll();
-        if (r > 0) {
-            warming_ = false;
-            up_ = true;
-            g_imeUp.store(true);
-            logf(ANDROID_LOG_INFO,
-                 "输入法桥接预热完成，用时 %lldms（首次点击不再承担冷启动）",
-                 nowMs() - warmStartMs_);
-        } else if (r < 0) {
-            warming_ = false;
-            logf(ANDROID_LOG_WARN, "输入法桥接预热失败: %s（点击时会重试）", bridge_.lastError());
-        }
-    }
-
-    bool warming() const { return warming_; }
-    bool trace() const { return imeTrace_; }
-
-    /** 拉起键盘。**返回是否真的把请求发出去了** —— 失败必须让调用者知道，
-     *  否则"上升沿"会被一次失败永久吃掉（用户报的"必须重复点击"）。 */
-    bool show(int session) {
-        if (!ensureUp()) return false;
-        aurora::ImeState st;
-        st.session = session;
-        // ★ 起点必须与界面上**真实的输入框内容**一致（不是我们自己缓存的副本）：
-        //   两边起点不同的话，之后每一次同步都在补这个差额 ——
-        //   用户看到的就是"莫名其妙多一个字"。
-        st.text = renderer_ != nullptr ? renderer_->textInputText() : std::string();
-        text_ = st.text;
-        st.start = static_cast<int>(text_.size());
-        st.end = static_cast<int>(text_.size());
-        return bridge_.show(st);
-    }
-
-    void hide() {
-        if (!up_) return;
-        bridge_.hide();
-    }
-
-    /** 每帧调用（非阻塞）。 */
-    void pump() {
-        if (!up_) return;
-        const int n = bridge_.pump(0);          // ★ 0 = 完全非阻塞，可以放渲染循环
-        if (n < 0) {
-            logf(ANDROID_LOG_WARN, "输入法连接断开，收尾");
-            shutdown();
-        }
-    }
-
-    void shutdown() {
-        if (!up_) { bridge_.close(); return; }
-        bridge_.hide();                          // 先收键盘
-        for (int i = 0; i < 5; ++i) {
-            if (bridge_.pump(50) < 0) break;     // 最多等 250ms 收可见性回调
-        }
-        bridge_.close();                         // QUIT → 关 stdin → Java 侧 pm uninstall
-        up_ = false;
-        g_imeUp.store(false);
-    }
-
-    bool up() const { return up_; }
-    const char* lastError() const { return bridge_.lastError(); }
-
-    /**
-     * ★★ 取出并清掉"用户/系统把键盘收起来了"这个事实。
-     *
-     * 为什么必须有它（本轮修的真实 bug）：键盘被收起之后
-     *   · ImGui 的 InputText 仍然处于 active ⇒ `wantsTextInput()` 恒为 true；
-     *   · 而拉起的条件是 `wants && !imeWanted` 的**上升沿**，`imeWanted` 没人复位
-     *   ⇒ 之后无论怎么点输入框都不会再调 show()，键盘**再也叫不回来**。
-     * 复位 `imeWanted` 只是第一步，还得让 UI 真的失焦（见 Renderer::requestTextInputEnd），
-     * 否则 `wants` 仍恒真、上升沿仍然不来。
-     */
-    bool consumeHiddenEvent() {
-        const bool pending = hiddenPending_;
-        hiddenPending_ = false;
-        return pending;
-    }
-
-    // ---- aurora::ImeCallbacks（在 pump 的调用线程上同步执行：只写状态，别碰 GL） ----
-    void onEdit(int, const std::string& text, int start, int end) override {
-        // ★★ 回传的是**整段已提交文本**（Java 侧 reportEdit 发的快照，已排除拼音等
-        //    composing 文本），所以这里做的是**设置**而不是增量对齐：
-        //    两份文本状态（Java 的 EditText / ImGui 的 InputText）从此始终一致，
-        //    "莫名其妙多一个字 / 少一个字" 从结构上消失。
-        //    （历史：旧实现按追加语义 `pendingText_ += 整段` ⇒ 敲 ab 变 aab；
-        //      上一版换成"公共前缀 + 退格 + 插入"的增量换算 ⇒ 打字/退格正确，
-        //      但只要有一侧先动过（选字、粘贴、输入法一次上屏一整句），
-        //      基准就会永久错开 —— 用户反馈的"怪怪的"就是这个。）
-        const aurora::ImeTextDelta delta = aurora::ComputeImeTextDelta(text_, text);
-        text_ = text;
-        if (renderer_ == nullptr || delta.identical) return;
-        // 选区是 UTF-8 字节偏移（协议口径），ImGui 的光标用 UTF-16 码元 ⇒ 换算。
-        const int selStart = aurora::ImeUtf16IndexFromUtf8(text, start);
-        const int selEnd = aurora::ImeUtf16IndexFromUtf8(text, end);
-        renderer_->setImeText(text.c_str(), selStart, selEnd);
-        if (imeTrace_) {
-            logf(ANDROID_LOG_INFO, "[输入法] 镜像同步：%zu 字节，选区 %d..%d（UTF-16）",
-                 text.size(), selStart, selEnd);
-        }
-    }
-    void onKeyboard(int, bool visible) override {
-        logf(ANDROID_LOG_INFO, "键盘可见性 = %d", visible ? 1 : 0);
-    }
-    void onHidden(int) override {
-        hiddenPending_ = true;
-        logf(ANDROID_LOG_INFO, "键盘已收起 → 复位请求状态并让输入框失焦（下次点击可以重新拉起）");
-    }
-    void onImeInsets(int, const aurora::ImeInsetRect& rect) override {
-        if (renderer_ != nullptr) {
-            renderer_->setImeInsetRect(rect.left, rect.top, rect.right, rect.bottom);
-        }
-        if (rect.valid() != lastInsetValid_ || rect.top != lastInsetTop_) {
-            lastInsetValid_ = rect.valid();
-            lastInsetTop_ = rect.top;
-            logf(ANDROID_LOG_INFO, "输入法弹层矩形 = (%d,%d)-(%d,%d)（宿主据此挖掉触摸区并避让）",
-                 rect.left, rect.top, rect.right, rect.bottom);
-        }
-    }
-    void onClipboard(const std::string&) override {}
+    aurora::Renderer* renderer() const { return renderer_; }
 
 private:
-    aurora::InputBridge bridge_;
     aurora::Renderer* renderer_ = nullptr;
-    std::string text_;
-    bool up_ = false;
-    bool hiddenPending_ = false;
-    bool imeTrace_ = false;
-    bool warming_ = false;          // 启动期预热进行中（冷启动后半段）
-    long long warmStartMs_ = 0;     // 预热起点，用于日志里的"用时"
-    bool lastInsetValid_ = false;
-    int lastInsetTop_ = -1;
 };
 }  // namespace
 
@@ -1875,7 +1715,7 @@ bool yesPhysical = false;    // 兼容旧命令行；物理屏闸门已删除，
     //   实测这段要 1.5~2.5 秒（research/ime_result.md 1475ms、
     //   research/ime_physical_run/README.md 2449ms），正是"第一次点击要等好几秒"的来源。
     //   ★ 预热全程**只建窗、不发 SHOW** ⇒ 不会在启动时主动弹键盘。
-    if (wantIme) ime.warmUpBegin();
+        // 自绘键盘没有"预热"这一步（原来要释放 APK + pm install + 等 Service 连回）
 
     // ---- --record：界面已经在跑，现在开录（等价于点主题窗口里的「开始录屏」）----
     // ★ 一定要在主循环**之前**起、在收尾里**停**：stop() 走 SIGINT，
@@ -2024,11 +1864,6 @@ bool yesPhysical = false;    // 兼容旧命令行；物理屏闸门已删除，
         }
         ime.pump();
         ime.warmUpPoll();          // ★ 非阻塞推进冷启动（预热完成后是空操作）
-        if (ime.trace()) {
-            logf(ANDROID_LOG_INFO, "[IME-TRACE] wants=%d imeWanted=%d wantIme=%d up=%d warming=%d",
-                 wants ? 1 : 0, imeWanted ? 1 : 0, wantIme ? 1 : 0, ime.up() ? 1 : 0,
-                 ime.warming() ? 1 : 0);
-        }
 
         // ---- 用户在主题窗口上按了 × ⇒ 退出整个覆盖层 ----
         // ★ 走的是**正常收尾**（和 --max-seconds 到期同一条路）：停采集、收键盘、
