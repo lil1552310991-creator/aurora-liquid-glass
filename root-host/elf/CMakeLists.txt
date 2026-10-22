@@ -8,6 +8,9 @@ if(NOT DEFINED AURORA_SILENT)
     set(AURORA_SILENT 1)
 endif()
 add_compile_definitions(AURORA_SILENT=${AURORA_SILENT})
+
+# 内嵌的输入法桥接 APK（app_process + 临时安装 + 悬浮窗宿主）
+set(IME_BRIDGE_DIR  ${CMAKE_CURRENT_SOURCE_DIR}/../../ime-bridge/build)
 message(STATUS "AURORA_SILENT=${AURORA_SILENT} (1 = 纯净版，无任何日志)")
 
 # =============================================================================
@@ -178,7 +181,8 @@ add_library(aurora_glass_ui STATIC
 target_include_directories(aurora_glass_ui PUBLIC
     ${AURORA_CPP_DIR}
     ${ELF_IMGUI_DIR}
-    ${ELF_LIQUIDGLASS_DIR})
+    ${ELF_LIQUIDGLASS_DIR}
+    ${IME_BRIDGE_DIR})            # AuroraImeApk.h
 target_compile_features(aurora_glass_ui PUBLIC cxx_std_20)
 target_compile_options(aurora_glass_ui PRIVATE
     -ffp-contract=off -Wall -Wextra -Werror=return-type)
@@ -220,11 +224,11 @@ add_dependencies(aurora_glass_ui imgui_vulkan)
 add_executable(aurora_overlay aurora_overlay.cpp RealtimeCapture.cpp)
 target_include_directories(aurora_overlay PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}   # aosp_glue.h
-    ${AURORA_CPP_DIR})            # InputBridge.h 已删除；这里保留是为了将来的头文件
-target_compile_features(aurora_overlay PRIVATE cxx_std_20)
+    ${AURORA_CPP_DIR}             # InputBridge.h
+    ${IME_BRIDGE_DIR})            # AuroraImeApk.h（被 InputBridge.h 在 namespace 内 include）
 target_compile_options(aurora_overlay PRIVATE
     -ffp-contract=off -Wall -Wextra -Werror=return-type)
-# aurora_glass_ui 是 PUBLIC 依赖，EGL/GLESv3/log/dl/android 与全部 include 路径
+target_compile_features(aurora_overlay PRIVATE cxx_std_20)
 # 都会自动带过来，无需在这里重复声明。
 target_link_libraries(aurora_overlay PRIVATE aurora_glass_ui)
 
